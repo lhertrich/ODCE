@@ -4,7 +4,7 @@ from typing import Tuple, List, Dict, Any, Union
 import math
 import types
 from transformers import DetrForObjectDetection, DetrImageProcessor
-from adapter import Adapter
+from .adapter import Adapter
 
 
 def get_sinusoidal_positional_embedding(batch_size, seq_len, hidden_dim, device):
@@ -116,7 +116,7 @@ class AdapterDetr(nn.Module):
             inputs_embeds=initial_query_embeddings,
             encoder_hidden_states=transformed_encoder_hidden_states,
             query_position_embeddings=query_pos_embed,
-            position_embeddings=encoder_pos_embed,
+            object_queries=encoder_pos_embed,
         )
 
         last_hidden_state = decoder_outputs.last_hidden_state # Shape: (batch_size, num_queries, hidden_dim)
