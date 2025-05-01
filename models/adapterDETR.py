@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
-from transformers import DetrForObjectDetection, DetrImageProcessor
 from typing import Tuple, List, Dict, Any, Union
 import math
 import types
+from transformers import DetrForObjectDetection, DetrImageProcessor
+from .adapter import Adapter
 
 
 def get_sinusoidal_positional_embedding(batch_size, seq_len, hidden_dim, device):
@@ -18,34 +19,6 @@ def get_sinusoidal_positional_embedding(batch_size, seq_len, hidden_dim, device)
     pe = pe.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, seq_len, hidden_dim)
     return pe
 
-class Adapter(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, seq_len: int):
-        """
-        Args:
-            input_dim (int): The dimension of the input features from your custom encoder.
-            output_dim (int): The expected hidden dimension of the DETR decoder (d_model).
-            seq_len (int): The expected sequence length of the input features.
-        """
-        super().__init__()
-
-        self.projection = nn.Linear(input_dim, output_dim)
-        print(f"Initialized SimpleAdapter: Input Dim={input_dim}, Output Dim={output_dim}, Seq Len={seq_len}")
-
-    def forward(self, encoder_output):
-        """
-        Args:
-            encoder_output (torch.Tensor): The output tensor from your custom encoder.
-                                           Expected shape: (batch_size, seq_len, input_dim)
-                                           or (batch_size, input_dim, H, W) etc.
-
-        Returns:
-            torch.Tensor: The transformed features suitable for the DETR decoder.
-                          Expected shape: (batch_size, seq_len, output_dim)
-        """
-        transformed_output = self.projection(encoder_output)
-
-        return transformed_output
-
 
 class AdapterDetr(nn.Module):
 
@@ -55,7 +28,7 @@ class AdapterDetr(nn.Module):
         model_checkpoint: str = "facebook/detr-resnet-50",
         train_decoder: bool = True, # Option to train DETR decoder
         train_prediction_heads: bool = True, # Option to train prediction heads
-        encoder: nn.Module = None,
+        encoder: nn.Module = None
     ):
 
         super().__init__()
@@ -70,6 +43,18 @@ class AdapterDetr(nn.Module):
         #Get decoder out of DETR model
         self.detr_model = self.detr_full_model.model
         self.decoder = self.detr_model.decoder
+
+        # Initialize new prediction head
+        num_user_labels   = 365
+        num_model_classes = num_user_labels + 1
+        hidden_dim = self.detr_model.config.d_model
+        self.classification_head = nn.Linear(hidden_dim, num_model_classes)
+        nn.init.xavier_uniform_(self.classification_head.weight)
+
+        # FRESH LABEL MAPS IF NECESSARY: self.config.id2label, self.config.label2id
+
+        # Keep bounding box head
+        self.bbox_regression_head = self.detr_full_model.bbox_predictor
 
         # Learnable object query positional embeddings (part of DETR)
         # NB! don't understand
@@ -128,10 +113,10 @@ class AdapterDetr(nn.Module):
 
 
         decoder_outputs = self.decoder(
-            inputs_embeds=initial_query_embeddings, # Initial input embeddings for queries
-            encoder_hidden_states=transformed_encoder_hidden_states, # features
-            query_position_embeddings=query_pos_embed, # Positional embeddings for queries
-            object_queries=encoder_pos_embed # Positional embeddings for encoder features 
+            inputs_embeds=initial_query_embeddings,
+            encoder_hidden_states=transformed_encoder_hidden_states,
+            query_position_embeddings=query_pos_embed,
+            object_queries=encoder_pos_embed,
         )
 
         last_hidden_state = decoder_outputs.last_hidden_state # Shape: (batch_size, num_queries, hidden_dim)
