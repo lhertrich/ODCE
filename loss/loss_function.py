@@ -1,5 +1,6 @@
-from detr import SetCriterion
-from detr import HungarianMatcher
+# Install detr: pip install detr
+from detr.models.matcher import HungarianMatcher
+from detr.models.detr    import SetCriterion
 
 """
 Usage:
