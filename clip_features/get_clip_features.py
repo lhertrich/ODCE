@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from loguru import logger
 from dataset import RefL4Dataset
+from Long_CLIP.model import longclip
 
 
 def get_clip_features(
@@ -14,7 +15,8 @@ def get_clip_features(
     model_path,
     device="cuda",
 ):
-    model, preprocess = clip.load(model_path)
+    # model, preprocess = clip.load(model_path)
+    model, preprocess = longclip.load(model_path, device=device)
     model.float()
     model.to(device)
 
@@ -48,7 +50,7 @@ def get_clip_features(
                 vision_features.append(vision_output.cpu())
 
                 # Tokenize captions and get language features
-                token_inputs = clip.tokenize(captions, truncate=True).to(device)
+                token_inputs = longclip.tokenize(captions, truncate=True).to(device)
                 language_output = model.encode_text(token_inputs)
                 language_features.append(language_output.cpu())
 
@@ -63,13 +65,16 @@ def get_clip_features(
         torch.save(language_features, save_path_text)
         logger.info(f"Save text features at {save_path_text}")
 
+        print("Vision_features.shape", vision_features.shape)
+        print("Language_features.shape", language_features.shape)
+
         return vision_features, language_features
 
 
 if __name__ == "__main__":
     # for split in ["val", "train"]:
-    model_path = ""
-    for split in ["val"]:
+    model_path = "./Long_CLIP/checkpoints/longclip-B.pt"
+    for split in ["all"]:
         # Load the dataset
         ref_l4_dataset = RefL4Dataset("JierunChen/Ref-L4", split=split)
         save_path = f"./features/ref_l4/{split}"
