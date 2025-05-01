@@ -11,9 +11,10 @@ def get_clip_features(
     dataset,
     batch_size,
     save_path,
+    model_path,
     device="cuda",
 ):
-    model, preprocess = clip.load("/mlbio_scratch/wen/ckpt/clip/ViT-L-14-336px.pt")
+    model, preprocess = clip.load(model_path)
     model.float()
     model.to(device)
 
@@ -54,9 +55,11 @@ def get_clip_features(
         vision_features = torch.cat(vision_features, dim=0)
         language_features = torch.cat(language_features, dim=0)
 
+        save_path_vision.parent.mkdir(parents=True, exist_ok=True)
         torch.save(vision_features, save_path_vision)
         logger.info(f"Save vision features at {save_path_vision}")
 
+        save_path_text.parent.mkdir(parents=True, exist_ok=True)
         torch.save(language_features, save_path_text)
         logger.info(f"Save text features at {save_path_text}")
 
@@ -65,6 +68,7 @@ def get_clip_features(
 
 if __name__ == "__main__":
     # for split in ["val", "train"]:
+    model_path = ""
     for split in ["val"]:
         # Load the dataset
         ref_l4_dataset = RefL4Dataset("JierunChen/Ref-L4", split=split)
@@ -73,8 +77,5 @@ if __name__ == "__main__":
             ref_l4_dataset,
             batch_size=32,
             save_path=save_path,
+            model_path=model_path,
         )
-
-        import pdb
-
-        pdb.set_trace()
