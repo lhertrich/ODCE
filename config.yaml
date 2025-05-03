@@ -1,4 +1,5 @@
 num_classes: 365
+device: "cuda"  # or "cpu" depending on your setup
 adapter_detr:
   _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
   adapter:
