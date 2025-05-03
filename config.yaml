@@ -1,0 +1,29 @@
+num_classes: 365
+adapter_detr:
+  _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
+  adapter:
+    _target_: models.adapter.Adapter    # Replace with actual module path
+    input_dim: 512   # Reference variables or hardcode values
+    output_dim: 256
+    seq_len: 1
+  train_prediction_heads: true
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.001
+
+train:
+  epochs: 5
+  batch_size: 32
+
+wandb:
+  project: "RQ1"
+  entity: "visiblyintelligent"
+  name: "debug"
+
+data:
+  dataset_name: "JierunChen/Ref-L4"
+  feature_path: "/home/tranhuon/ODCE/data/longclip-emb"
+  batch_size: 32
+  shuffle: true
+  split: "val"
