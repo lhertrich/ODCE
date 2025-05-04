@@ -54,34 +54,51 @@ def main(config):
             labels = data["labels"].to(device)
             boxes = data["bbox"].to(device)
 
-            # Create targets with proper 1D label tensors
+            def convert_boxes(boxes, image_size=None):
+            
+                if image_size is not None:
+                    width, height = image_size
+                    boxes = boxes.clone()
+                    boxes[:, 0] /= width
+                    boxes[:, 1] /= height
+                    boxes[:, 2] /= width
+                    boxes[:, 3] /= height
+    
+                # Convert top-left to center coordinates
+                cx = boxes[:, 0] + boxes[:, 2] / 2
+                cy = boxes[:, 1] + boxes[:, 3] / 2
+
+                return torch.stack([cx, cy, boxes[:, 2], boxes[:, 3]], dim=1)
+
+            converted_boxes = [convert_boxes(box) for box in boxes.unbind(0)]
+
             targets = [
                 {"labels": lbl, "boxes": box} 
-                for lbl, box in zip(labels.unbind(0), boxes.unbind(0))
+                for lbl, box in zip(labels.unbind(0), converted_boxes)
             ]
 
             outputs = {
                 "pred_logits": raw_logits,
                 "pred_boxes": raw_pred_boxes
             }
-            """
-            TODO: fix the loss function
-            """
-            
-            # loss_dict = criterion(outputs, targets)
-            # total_loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys())
 
-            # # Backward pass
-            # optimizer.zero_grad()
-            # total_loss.backward()
-            # optimizer.step()
+            loss_dict = criterion(outputs, targets)
+            weighted_loss_dict = {k: loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict}
+            total_loss = sum(weighted_loss_dict.values())
 
-            # # Log metrics based on training step information not epoch
-            # wandb.log({
-            #     "epoch": epoch,
-            #     "loss": total_loss.item(),
-            #     "learning_rate": optimizer.param_groups[0]['lr']
-            # })
+            # Backward pass
+            optimizer.zero_grad()
+            total_loss.backward()
+            optimizer.step()
+
+            # Log both total and individual losses
+            log_dict = {f"loss/{k}": v.item() for k, v in loss_dict.items()}
+            log_dict.update({
+                "epoch": epoch,
+                "loss/total": total_loss.item(),
+                "learning_rate": optimizer.param_groups[0]['lr']
+            })
+            wandb.log(log_dict)
 
     # Finish WandB run
     wandb.finish()

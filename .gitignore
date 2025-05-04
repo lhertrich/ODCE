@@ -2,3 +2,5 @@ __pycache__/
 *.py[cod]
 *$py.class
 data/longclip-emb/
+data/
+clip_features/Long_CLIP
