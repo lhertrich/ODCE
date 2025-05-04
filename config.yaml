@@ -16,6 +16,9 @@ optimizer:
 train:
   epochs: 5
   batch_size: 32
+  checkpoint_dir: "./checkpoints/rq1-image-only"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
+  save_interval: 100
 
 wandb:
   project: "RQ1"
@@ -24,7 +27,7 @@ wandb:
 
 data:
   dataset_name: "JierunChen/Ref-L4"
-  feature_path: "/home/tranhuon/ODCE/data/longclip-emb"
+  feature_path: "./data/longclip-emb"
   batch_size: 32
   shuffle: true
   split: "val"

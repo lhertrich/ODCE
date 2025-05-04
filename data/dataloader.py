@@ -33,7 +33,7 @@ class RefL4Dataset(Dataset):
         custom_transforms=None,
         load_images=False,
         load_features=True,
-        feature_dir='/home/tranhuon/ODCE/data/longclip-emb'
+        feature_dir=None
     ):
         super().__init__()
         assert split in ["val", "test"], "split should be val or test"
