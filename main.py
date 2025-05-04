@@ -9,6 +9,9 @@ import hydra
 import os
 
 def convert_boxes(boxes, image_size=None):
+    if boxes.dim() == 1:
+        boxes = boxes.unsqueeze(0)
+    
     if image_size is not None:
         width, height = image_size
         boxes = boxes.clone()
