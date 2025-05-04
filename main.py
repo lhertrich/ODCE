@@ -93,9 +93,20 @@ def main(config):
             boxes = data["bbox"].to(device)
             converted_boxes = [convert_boxes(box) for box in boxes.unbind(0)]
 
+            processed_labels = []
+            for lbl in labels.unbind(0):
+                # If label is scalar (0-dim), convert to 1D tensor
+                if lbl.dim() == 0:
+                    lbl = lbl.unsqueeze(0)
+                # If label is empty, add a default "no object" label (assuming class 0 is background)
+                #TODO check if 0 is background class
+                if lbl.numel() == 0:
+                    lbl = torch.tensor([0], device=lbl.device)
+                processed_labels.append(lbl)
+            
             targets = [
                 {"labels": lbl, "boxes": box} 
-                for lbl, box in zip(labels.unbind(0), converted_boxes)
+                for lbl, box in zip(processed_labels, converted_boxes)
             ]
 
             outputs = {
