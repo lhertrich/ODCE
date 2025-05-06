@@ -5,3 +5,4 @@ data/longclip-emb/
 clip_features/Long_CLIP
 checkpoints/
 detr/
+wandb/
