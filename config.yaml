@@ -14,7 +14,7 @@ optimizer:
   lr: 0.001
 
 train:
-  epochs: 5
+  epochs: 30
   batch_size: 32
   checkpoint_dir: "./checkpoints/rq1-image-only"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
@@ -30,4 +30,4 @@ data:
   feature_path: "./data/longclip-emb"
   batch_size: 32
   shuffle: true
-  split: "val"
+  split: "all"

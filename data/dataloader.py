@@ -37,7 +37,7 @@ class RefL4Dataset(Dataset):
         feature_dir=None,
     ):
         super().__init__()
-        assert split in ["val", "test"], "split should be val or test"
+        assert split in ["val", "test", "all"], "split should be val or test"
         self.dataset_path = dataset_path
         self.split = split
         self.images_file = images_file
