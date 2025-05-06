@@ -7,12 +7,14 @@ git clone https://github.com/facebookresearch/detr.git
 
 Start an interactive session on a compute node (eg, 2 GPUs case):
 
+bbox: Bounding box coordinates [x, y, w, h] of the annotated object.
+
 ```bash
 srun -t 120 -A cs-503 --qos=cs-503 --gres=gpu:2 --mem=16G --pty bash
 ```
 Then, on the compute node:
 
 ```bash
-conda activate nanofm
+conda activate nanofms
 wandb login
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 run_training.py 
