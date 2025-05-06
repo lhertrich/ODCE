@@ -104,13 +104,23 @@ def main(config):
                                 batch_size=config.data.batch_size,
                                 shuffle=config.data.shuffle, 
                                 device=device)    
-    model.train()
+    
+    full_ds = dataloader.dataset
+    n_total = len(full_ds)
+    n_train = int(n_total * 0.9)
+    n_val = n_total - n_train
+    train_ds, val_ds = torch.utils.data.random_split(full_ds, [n_train, n_val], generator=torch.Generator().manual_seed(42))
+    
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False)
+    
     criterion, weight_dict = get_loss_fn(config)
     criterion = criterion.to(device)
     
     print("Training started")
     for epoch in range(start_epoch, config.train.epochs):
-        for images, data in dataloader:
+        model.train()
+        for images, data in train_loader:
             inputs = data['clip_vision'].to(device)
             raw_logits, raw_pred_boxes = model.forward(inputs.unsqueeze(1))
             labels = data["labels"].to(device)
@@ -178,6 +188,64 @@ def main(config):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': total_loss.item(),
                     }, checkpoint_path)
+                
+        model.eval()
+        val_loss = 0.0
+        count = 0
+        with torch.no_grad():
+            for images, data in val_loader:
+                inputs = data['clip_vision'].to(device)
+                raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
+                pred_boxes = raw_pred_boxes.sigmoid()
+
+                labels = data["labels"].to(device)
+
+                boxes   = data["bbox"].to(device)            # shape (B,4)
+                widths  = data["width"].tolist()             # [w1, w2, …]
+                heights = data["height"].tolist()            # [h1, h2, …]
+
+                # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
+                converted_boxes = [
+                    convert_boxes(box, (w, h)) 
+                    for box, w, h in zip(boxes.unbind(0), widths, heights)
+                ]
+
+
+                processed_labels = []
+                for lbl in labels.unbind(0):
+                    # If label is scalar (0-dim), convert to 1D tensor
+                    if lbl.dim() == 0:
+                        lbl = lbl.unsqueeze(0)
+                    # If label is empty, add a default "no object" label (assuming class 0 is background)
+                    #TODO check if 0 is background class
+                    if lbl.numel() == 0:
+                        lbl = torch.tensor([0], device=lbl.device)
+                    processed_labels.append(lbl)
+
+
+                targets = [
+                    {"labels": lbl,    # (n_obj,)
+                    "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
+                    for lbl, box in zip(processed_labels, converted_boxes)
+                ]
+
+                outputs = {
+                    "pred_logits": raw_logits,
+                    "pred_boxes":  pred_boxes
+                }
+                loss_dict = criterion(outputs, targets)
+                # sum up the weighted losses
+                weighted_loss_dict = {k: loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict}
+                total_loss = sum(weighted_loss_dict.values())
+                val_loss += total_loss.item()
+                count    += 1
+
+        avg_val_loss = val_loss / count
+        # log to wandb
+        wandb.log({
+            'epoch': epoch,
+            'val/loss': avg_val_loss
+        })
                 
     final_checkpoint = {
     'global_step': global_step,
