@@ -1,0 +1,4 @@
+[2025-05-04 22:34:12,316][timm.models._builder][INFO] - Loading pretrained weights from Hugging Face hub (timm/resnet50.a1_in1k)
+[2025-05-04 22:34:12,429][timm.models._hub][INFO] - [timm/resnet50.a1_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.
+[2025-05-04 22:34:12,458][timm.models._builder][INFO] - Missing keys (fc.weight, fc.bias) discovered while loading pretrained weights. This is expected if model is being adapted.
+[2025-05-04 22:34:14,349][root][ERROR] - Failed to load CLIP features: [Errno 2] No such file or directory: 'data/longclip-emb/vision_features.pt'

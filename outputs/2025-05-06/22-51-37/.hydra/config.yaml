@@ -1,0 +1,29 @@
+num_classes: 365
+device: cuda
+adapter_detr:
+  _target_: models.adapterDETR.AdapterDetr
+  adapter:
+    _target_: models.adapter.Adapter
+    input_dim: 512
+    output_dim: 256
+    seq_len: 1
+  train_prediction_heads: true
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.001
+train:
+  epochs: 30
+  batch_size: 32
+  checkpoint_dir: ./checkpoints/rq1-image-only
+  resume_checkpoint_dir: ${train.checkpoint_dir}/checkpoint_last.pth
+  save_interval: 100
+wandb:
+  project: RQ1
+  entity: visiblyintelligent
+  name: debug
+data:
+  dataset_name: JierunChen/Ref-L4
+  feature_path: ./data/longclip-emb
+  batch_size: 32
+  shuffle: true
+  split: all
