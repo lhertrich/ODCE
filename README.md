@@ -5,6 +5,8 @@ Dataset is saved at data/longclip-emb/text_features.pt & data/longclip-emb/visio
 import detr is a bit tricky, I cloned the repo and added it to the path.
 git clone https://github.com/facebookresearch/detr.git
 
+Be sure to rename the folder detr/datasets to something else, otherwise it conflicts with huggingface module "datasets"
+
 Start an interactive session on a compute node (eg, 2 GPUs case):
 
 ```bash
