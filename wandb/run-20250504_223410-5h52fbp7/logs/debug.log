@@ -1,0 +1,23 @@
+2025-05-04 22:34:10,278 INFO    MainThread:3783995 [wandb_setup.py:_flush():67] Current SDK version is 0.19.9
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_setup.py:_flush():67] Configure stats pid to 3783995
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_setup.py:_flush():67] Loading settings from /home/hertrich/.config/wandb/settings
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_setup.py:_flush():67] Loading settings from /home/hertrich/VI_project/ODCE/wandb/settings
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_setup.py:_flush():67] Loading settings from environment variables
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_init.py:setup_run_log_directory():662] Logging user logs to /home/hertrich/VI_project/ODCE/wandb/run-20250504_223410-5h52fbp7/logs/debug.log
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_init.py:setup_run_log_directory():663] Logging internal logs to /home/hertrich/VI_project/ODCE/wandb/run-20250504_223410-5h52fbp7/logs/debug-internal.log
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_init.py:init():781] calling init triggers
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_init.py:init():786] wandb.init called with sweep_config: {}
+config: {'num_classes': 365, 'device': 'cuda', 'adapter_detr': {'_target_': 'models.adapterDETR.AdapterDetr', 'adapter': {'_target_': 'models.adapter.Adapter', 'input_dim': 512, 'output_dim': 256, 'seq_len': 1}, 'train_prediction_heads': True}, 'optimizer': {'_target_': 'torch.optim.AdamW', 'lr': 0.001}, 'train': {'epochs': 5, 'batch_size': 32, 'checkpoint_dir': './checkpoints/rq1-image-only', 'resume_checkpoint_dir': '${train.checkpoint_dir}/checkpoint_last.pth', 'save_interval': 100}, 'wandb': {'project': 'RQ1', 'entity': 'visiblyintelligent', 'name': 'debug'}, 'data': {'dataset_name': 'JierunChen/Ref-L4', 'feature_path': './data/longclip-emb', 'batch_size': 32, 'shuffle': True, 'split': 'val'}, '_wandb': {}}
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_init.py:init():809] starting backend
+2025-05-04 22:34:10,279 INFO    MainThread:3783995 [wandb_init.py:init():813] sending inform_init request
+2025-05-04 22:34:10,303 INFO    MainThread:3783995 [backend.py:_multiprocessing_setup():101] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2025-05-04 22:34:10,303 INFO    MainThread:3783995 [wandb_init.py:init():823] backend started and connected
+2025-05-04 22:34:10,306 INFO    MainThread:3783995 [wandb_init.py:init():915] updated telemetry
+2025-05-04 22:34:10,328 INFO    MainThread:3783995 [wandb_init.py:init():939] communicating run to backend with 90.0 second timeout
+2025-05-04 22:34:10,799 INFO    MainThread:3783995 [wandb_init.py:init():1014] starting run threads in backend
+2025-05-04 22:34:10,945 INFO    MainThread:3783995 [wandb_run.py:_console_start():2454] atexit reg
+2025-05-04 22:34:10,945 INFO    MainThread:3783995 [wandb_run.py:_redirect():2306] redirect: wrap_raw
+2025-05-04 22:34:10,945 INFO    MainThread:3783995 [wandb_run.py:_redirect():2371] Wrapping output streams.
+2025-05-04 22:34:10,945 INFO    MainThread:3783995 [wandb_run.py:_redirect():2394] Redirects installed.
+2025-05-04 22:34:10,947 INFO    MainThread:3783995 [wandb_init.py:init():1056] run started, returning control to user process
+2025-05-04 22:34:15,323 INFO    MsgRouterThr:3783995 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.

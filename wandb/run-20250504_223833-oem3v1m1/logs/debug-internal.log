@@ -1,0 +1,15 @@
+{"time":"2025-05-04T22:38:33.607809196+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/home/hertrich/VI_project/ODCE/wandb/run-20250504_223833-oem3v1m1/logs/debug-core.log"}
+{"time":"2025-05-04T22:38:33.865640167+02:00","level":"INFO","msg":"created new stream","id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:33.865683083+02:00","level":"INFO","msg":"stream: started","id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:33.865700001+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:33.865703806+02:00","level":"INFO","msg":"sender: started","stream_id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:33.865715776+02:00","level":"INFO","msg":"handler: started","stream_id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:34.16583666+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-04T22:38:38.559102656+02:00","level":"INFO","msg":"stream: closing","id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:38.55913714+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-04T22:38:38.559180398+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-04T22:38:39.151720352+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-04T22:38:39.332423563+02:00","level":"INFO","msg":"handler: closed","stream_id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:39.332468771+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:39.332487367+02:00","level":"INFO","msg":"sender: closed","stream_id":"oem3v1m1"}
+{"time":"2025-05-04T22:38:39.33264622+02:00","level":"INFO","msg":"stream: closed","id":"oem3v1m1"}
