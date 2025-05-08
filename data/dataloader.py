@@ -7,7 +7,7 @@ import torch
 import datasets
 from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
-
+from torchvision import transforms as T
 import torch
 from torch.utils.data import Dataset
 from pathlib import Path
@@ -19,9 +19,9 @@ import tarfile
 from PIL import Image
 import io
 from tqdm import tqdm
-from datasets import load_dataset, concatenate_datasets
+import datasets
 import logging
-
+from huggingface_hub import hf_hub_download
 logging.basicConfig(level=logging.INFO)
 
 
@@ -35,8 +35,9 @@ class RefL4Dataset(Dataset):
         load_images=False,
         load_features=True,
         feature_dir=None,
+        custome_transforms=None,
     ):
-        super().__init__()
+        super(RefL4Dataset, self).__init__()
         assert split in ["val", "test", "all"], "split should be val or test"
         self.dataset_path = dataset_path
         self.split = split
@@ -47,7 +48,7 @@ class RefL4Dataset(Dataset):
         self.load_features = load_features
         self.vision_features = None
         self.text_features = None
-
+        self.transforms = custom_transforms
         self._load_dataset()
 
         if load_features and self.feature_dir:
@@ -60,12 +61,20 @@ class RefL4Dataset(Dataset):
         return len(self.dataset[self.split])
 
     def _load_dataset(self):
-        self.dataset = load_dataset(self.dataset_path)
+        self.dataset = datasets.load_dataset(self.dataset_path)
         if self.load_images:
-            self.images = self._load_images_from_tar(
-                f"{self.dataset_path}/{self.images_file}"
-            )
-        all_splits = concatenate_datasets([self.dataset["val"], self.dataset["test"]])
+            image_tar_path = f"{self.dataset_path}/{self.images_file}"
+            # manually download the images.tar.gz file
+            if self.dataset_path == "JierunChen/Ref-L4":
+                image_tar_path = hf_hub_download(
+                    repo_id="JierunChen/Ref-L4",
+                    filename="images.tar.gz",
+                    repo_type="dataset",
+                )
+                print(f"Downloaded images.tar.gz to {image_tar_path}")
+
+            self.images = self._load_images_from_tar(image_tar_path)
+        all_splits = datasets.concatenate_datasets([self.dataset["val"], self.dataset["test"]])
         self.dataset["all"] = all_splits
 
     def _load_images_from_tar(self, image_tar_path):
@@ -186,22 +195,30 @@ class RefL4Dataset(Dataset):
 
 
 # Usage example
-def get_dataloader(
-    dataset_name, feature_path, split="val", batch_size=32, shuffle=False, device="cuda"
-):
+def get_dataloader(config):
     """
     Load saved features and create DataLoader
     Returns:
         dataset: CLIPFeatureDataset instance
         dataloader: DataLoader for the dataset
     """
+    if config.data.load_images:
+        normalize = T.Compose([
+            T.Resize((224, 224)),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+    else:
+        normalize = None
+    
 
     dataset = RefL4Dataset(
-        dataset_path=dataset_name,
-        split=split,
-        load_images=False,
-        load_features=True,
-        feature_dir=feature_path,
+        dataset_path=config.data.dataset_name,
+        split=config.data.split,
+        load_images=config.data.load_images,
+        load_features=config.data.load_features,
+        feature_dir=config.data.feature_path,
+        custom_transforms=normalize,
     )
 
     # Convert string labels to integers in one step
@@ -214,13 +231,13 @@ def get_dataloader(
 
     dataloader = DataLoader(
         dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=4,
+        batch_size=config.data.batch_size,
+        shuffle=config.data.shuffle,
+        num_workers=config.data.num_workers,
         # collate_fn=collate_to_device,
         pin_memory=True,
     )
-    return dataloader
+    return dataset, dataloader
 
 
 if __name__ == "__main__":

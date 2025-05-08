@@ -76,13 +76,18 @@ def get_loss_fn(config):
 @hydra.main(version_base=None, config_path='',
             config_name='config')
 def main(config):
-    # 3. Initialize WandB
     wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
     global_step = 0
     device = torch.device(config.device)
     checkpoint_dir = config.train.checkpoint_dir  
-    os.makedirs(checkpoint_dir, exist_ok=True)  
-    model = instantiate(config.adapter_detr)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    if config.model=='orgDETR':
+        model = instantiate(config.org_detr)
+    elif config.model=='adapterDETR':  
+        model = instantiate(config.adapter_detr)
+    else:
+        raise ValueError(f"Unknown model type: {config.model}")
+    
     optimizer = instantiate(config.optimizer, params=model.parameters())
     last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
     
@@ -98,19 +103,12 @@ def main(config):
         print("No checkpoint found, starting from scratch.")
     
     model.to(device)
-    dataloader = get_dataloader(dataset_name=config.data.dataset_name,
-                                feature_path=config.data.feature_path,
-                                split=config.data.split,
-                                batch_size=config.data.batch_size,
-                                shuffle=config.data.shuffle, 
-                                device=device)    
-    
-    full_ds = dataloader.dataset
+    full_ds, _ = get_dataloader(config)    
     n_total = len(full_ds)
     n_train = int(n_total * 0.9)
     n_val = n_total - n_train
+    print('Full dataset length:', n_total, 'Train dataset length:', n_train, 'Validation dataset length:', n_val)
     train_ds, val_ds = torch.utils.data.random_split(full_ds, [n_train, n_val], generator=torch.Generator().manual_seed(42))
-    
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False)
     
@@ -118,13 +116,17 @@ def main(config):
     criterion = criterion.to(device)
     
     print("Training started")
-    for epoch in range(start_epoch, config.train.epochs):
-        model.train()
+    model.train()
+    for epoch in range(start_epoch, config.train.epochs): 
         for images, data in train_loader:
-            inputs = data['clip_vision'].to(device)
-            raw_logits, raw_pred_boxes = model.forward(inputs.unsqueeze(1))
+            if config.data.load_images:
+                inputs = images.to(device)
+                raw_logits, raw_pred_boxes = model.forward(inputs)
+            else:
+                inputs = data['clip_vision'].to(device)
+                raw_logits, raw_pred_boxes = model.forward(inputs.unsqueeze(1))
+            
             labels = data["labels"].to(device)
-
             boxes   = data["bbox"].to(device)            # shape (B,4)
             widths  = data["width"].tolist()             # [w1, w2, …]
             heights = data["height"].tolist()            # [h1, h2, …]
@@ -134,7 +136,6 @@ def main(config):
                 convert_boxes(box, (w, h)) 
                 for box, w, h in zip(boxes.unbind(0), widths, heights)
             ]
-
 
             processed_labels = []
             for lbl in labels.unbind(0):
@@ -154,12 +155,10 @@ def main(config):
             for lbl, box in zip(processed_labels, converted_boxes)
             ]
  
-
             outputs = {
                 "pred_logits": raw_logits,
                 "pred_boxes": raw_pred_boxes.sigmoid()
             }
-
 
             loss_dict = criterion(outputs, targets)
             weighted_loss_dict = {k: loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict}
@@ -171,6 +170,7 @@ def main(config):
 
             # Log both total and individual losses
             log_dict = {f"loss/{k}": v.item() for k, v in loss_dict.items()}
+            # print(global_step, log_dict)
             log_dict.update({
                 "epoch": epoch,
                 "loss/total": total_loss.item(),
@@ -194,12 +194,15 @@ def main(config):
         count = 0
         with torch.no_grad():
             for images, data in val_loader:
-                inputs = data['clip_vision'].to(device)
-                raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
+                if config.data.load_images:
+                    inputs = images.to(device)
+                    raw_logits, raw_pred_boxes = model.forward(inputs)
+                else:
+                    inputs = data['clip_vision'].to(device)
+                    raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
+                    
                 pred_boxes = raw_pred_boxes.sigmoid()
-
                 labels = data["labels"].to(device)
-
                 boxes   = data["bbox"].to(device)            # shape (B,4)
                 widths  = data["width"].tolist()             # [w1, w2, …]
                 heights = data["height"].tolist()            # [h1, h2, …]
@@ -209,7 +212,6 @@ def main(config):
                     convert_boxes(box, (w, h)) 
                     for box, w, h in zip(boxes.unbind(0), widths, heights)
                 ]
-
 
                 processed_labels = []
                 for lbl in labels.unbind(0):
@@ -222,7 +224,6 @@ def main(config):
                         lbl = torch.tensor([0], device=lbl.device)
                     processed_labels.append(lbl)
 
-
                 targets = [
                     {"labels": lbl,    # (n_obj,)
                     "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
@@ -234,7 +235,6 @@ def main(config):
                     "pred_boxes":  pred_boxes
                 }
                 loss_dict = criterion(outputs, targets)
-                # sum up the weighted losses
                 weighted_loss_dict = {k: loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict}
                 total_loss = sum(weighted_loss_dict.values())
                 val_loss += total_loss.item()
@@ -248,12 +248,12 @@ def main(config):
         })
                 
     final_checkpoint = {
-    'global_step': global_step,
-    'epoch': config.train.epochs - 1,
-    'model_state_dict': model.state_dict(),
-    'optimizer_state_dict': optimizer.state_dict(),
-    'loss': total_loss.item(),
-    }
+        'global_step': global_step,
+        'epoch': config.train.epochs - 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': total_loss.item(),
+        }
     torch.save(final_checkpoint, last_checkpoint_path)
 
     wandb.finish()

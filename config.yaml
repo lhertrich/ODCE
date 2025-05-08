@@ -1,7 +1,22 @@
 num_classes: 365
 device: "cuda"  # or "cpu" depending on your setup
+model: orgDETR # [org_DETR, adapter_detr]
+org_detr:
+  _target_: models.orgDETR.Detr  # Replace with actual module path
+  # num_queries: 100
+  # hidden_dim: 256
+  # nheads: 8
+  # dim_feedforward: 2048
+  # dropout: 0.1
+  # activation: "relu"
+  # num_encoder_layers: 6
+  # num_decoder_layers: 6
+  # pre_norm: true
+  # return_intermediate_dec: false
+
 adapter_detr:
   _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
+  train_decoder: true
   adapter:
     _target_: models.adapter.Adapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
@@ -18,12 +33,12 @@ train:
   batch_size: 32
   checkpoint_dir: "./checkpoints/rq1-image-only"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
-  save_interval: 100
+  save_interval: 50
 
 wandb:
-  project: "RQ1"
+  project: "full-image"
   entity: "visiblyintelligent"
-  name: "debug"
+  name: "back-bone-freeze"
 
 data:
   dataset_name: "JierunChen/Ref-L4"
@@ -31,3 +46,6 @@ data:
   batch_size: 32
   shuffle: true
   split: "all"
+  load_images: true
+  load_features: false
+  num_workers: 1
