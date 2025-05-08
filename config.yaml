@@ -33,7 +33,7 @@ train:
   batch_size: 32
   checkpoint_dir: "./checkpoints/rq1-image-only"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
-  save_interval: 50
+  save_interval: 10000
 
 wandb:
   project: "full-image"
