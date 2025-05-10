@@ -32,6 +32,7 @@ train:
   epochs: 30
   batch_size: 32
   checkpoint_dir: "./checkpoints/rq1-image-only"
+  org_checkpoint_dir: "./checkpoints/org_detr"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
   save_interval: 10000
 
