@@ -9,5 +9,4 @@
 #SBATCH --output=./logs/slurm-%j.out
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
-
 bash train.sh
