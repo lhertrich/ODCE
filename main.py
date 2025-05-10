@@ -79,7 +79,6 @@ def main(config):
     wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
     global_step = 0
     device = torch.device(config.device)
-    checkpoint_dir = "fail"
     if config.model=='orgDETR':
         model = instantiate(config.org_detr)
         checkpoint_dir = config.train.org_checkpoint_dir
