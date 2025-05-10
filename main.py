@@ -79,7 +79,7 @@ def main(config):
     wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
     global_step = 0
     device = torch.device(config.device)
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    checkpoint_dir = "fail"
     if config.model=='orgDETR':
         model = instantiate(config.org_detr)
         checkpoint_dir = config.train.org_checkpoint_dir
@@ -88,7 +88,7 @@ def main(config):
         checkpoint_dir = config.train.checkpoint_dir
     else:
         raise ValueError(f"Unknown model type: {config.model}")
-    
+    os.makedirs(checkpoint_dir, exist_ok=True)
     optimizer = instantiate(config.optimizer, params=model.parameters())
     last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
     
