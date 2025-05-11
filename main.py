@@ -83,19 +83,19 @@ def main(config):
         model = instantiate(config.org_detr)
         checkpoint_dir = config.train.org_checkpoint_dir
         resume_checkpoint_dir = config.train.org_resume_checkpoint_dir
-        print(f"Loading model from {checkpoint_dir}")
     elif config.model=='adapterDETR':  
         model = instantiate(config.adapter_detr)
         checkpoint_dir = config.train.checkpoint_dir
         resume_checkpoint_dir = config.train.resume_checkpoint_dir
-        print(f"Loading model from {checkpoint_dir}")
     else:
         raise ValueError(f"Unknown model type: {config.model}")
     os.makedirs(checkpoint_dir, exist_ok=True)
     optimizer = instantiate(config.optimizer, params=model.parameters())
     last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
+    resume_from_scratch = config.train.from_scratch
     
-    if os.path.exists(resume_checkpoint_dir):
+    if os.path.exists(resume_checkpoint_dir) and not resume_from_scratch:
+        print(f"Loading model from {checkpoint_dir}")
         checkpoint = torch.load(resume_checkpoint_dir, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -162,7 +162,7 @@ def main(config):
  
             outputs = {
                 "pred_logits": raw_logits,
-                "pred_boxes": raw_pred_boxes.sigmoid()
+                "pred_boxes": raw_pred_boxes
             }
 
             loss_dict = criterion(outputs, targets)

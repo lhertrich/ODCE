@@ -51,17 +51,17 @@ class AdapterDetr(nn.Module):
         # Initialize new prediction head
         num_user_labels = 365
         num_model_classes = num_user_labels + 1
+        self.config.num_labels = num_user_labels
+        self.config.id2label = {i: str(i) for i in range(num_user_labels+1)}
+        self.config.label2id = {v:k for k,v in self.config.id2label.items()}
         hidden_dim = self.detr_model.config.d_model
         self.classification_head = nn.Linear(hidden_dim, num_model_classes)
         nn.init.xavier_uniform_(self.classification_head.weight)
-
-        # FRESH LABEL MAPS IF NECESSARY: self.config.id2label, self.config.label2id
 
         # Keep bounding box head
         self.bbox_regression_head = self.detr_full_model.bbox_predictor
 
         # Learnable object query positional embeddings (part of DETR)
-        # NB! don't understand
         self.query_pos_embed_weight = self.detr_model.query_position_embeddings.weight
         self.num_queries = self.query_pos_embed_weight.shape[0]
         self.hidden_dim = self.query_pos_embed_weight.shape[1]
@@ -132,14 +132,14 @@ class AdapterDetr(nn.Module):
 
         last_hidden_state = (
             decoder_outputs.last_hidden_state
-        )  # Shape: (batch_size, num_queries, hidden_dim)
+        ) 
 
         raw_logits = self.classification_head(
             last_hidden_state
-        )  # Shape: (batch_size, num_queries, num_classes)
+        ) 
         raw_pred_boxes = self.bbox_regression_head(
             last_hidden_state
-        )  # Shape: (batch_size, num_queries, 4)
+        ).sigmoid()
 
         # Return the raw outputs for loss calculation
         return raw_logits, raw_pred_boxes
@@ -161,10 +161,9 @@ class AdapterDetr(nn.Module):
                 initial_query_embeddings=query_embeds,
             )
 
-        # Shape of the images must be passed as list
         target_sizes = torch.tensor(
             original_image_size, device=raw_logits.device
-        )  # Shape [batch_size, 2]
+        )
 
         # Formulate output object
         output_object = types.SimpleNamespace()
