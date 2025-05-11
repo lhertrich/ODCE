@@ -30,10 +30,11 @@ optimizer:
 
 train:
   epochs: 30
-  batch_size: 32
+  batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
   org_checkpoint_dir: "./checkpoints/org_detr"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
+  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
   save_interval: 10000
 
 wandb:
@@ -44,7 +45,7 @@ wandb:
 data:
   dataset_name: "JierunChen/Ref-L4"
   feature_path: "./data/longclip-emb"
-  batch_size: 32
+  batch_size: 1
   shuffle: true
   split: "all"
   load_images: true
