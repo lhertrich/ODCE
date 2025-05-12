@@ -7,32 +7,36 @@ from detr.models.detr    import SetCriterion
 from data.dataloader import get_dataloader
 import hydra
 import os
+from torch.optim import AdamW
+from transformers import get_linear_schedule_with_warmup
 
-def convert_boxes_to_cxcywh(boxes, image_size):
-    """
-    boxes: Tensor[N,4] in (x_min, y_min, x_max, y_max), absolute pixels
-    image_size: (width, height)
-    returns: Tensor[N,4] in (cx, cy, w, h), normalized to [0,1]
-    """
-    if boxes.dim() == 1:
-        boxes = boxes.unsqueeze(0)
 
-    width, height = image_size
-    x_min, y_min, x_max, y_max = boxes.unbind(1)
-    w = x_max - x_min
-    h = y_max - y_min
-    cx = x_min + 0.5 * w
-    cy = y_min + 0.5 * h
+# def convert_boxes_to_cxcywh(boxes, image_size):
+#     """
+#     boxes: Tensor[N,4] in (x_min, y_min, x_max, y_max), absolute pixels
+#     image_size: (width, height)
+#     returns: Tensor[N,4] in (cx, cy, w, h), normalized to [0,1]
+#     """
+#     if boxes.dim() == 1:
+#         boxes = boxes.unsqueeze(0)
 
-    # normalize
-    cx = cx / width
-    cy = cy / height
-    w  = w  / width
-    h  = h  / height
+#     width, height = image_size
+#     x_min, y_min, x_max, y_max = boxes.unbind(1)
+#     w = x_max - x_min
+#     h = y_max - y_min
+#     cx = x_min + 0.5 * w
+#     cy = y_min + 0.5 * h
 
-    return torch.stack([cx, cy, w, h], dim=1)
+#     # normalize
+#     cx = cx / width
+#     cy = cy / height
+#     w  = w  / width
+#     h  = h  / height
+
+#     return torch.stack([cx, cy, w, h], dim=1)
 
 def convert_boxes(boxes, image_size=None):
+    # Convert top-left to center coordinates
     if boxes.dim() == 1:
         boxes = boxes.unsqueeze(0)
     
@@ -44,14 +48,13 @@ def convert_boxes(boxes, image_size=None):
         boxes[:, 2] /= width
         boxes[:, 3] /= height
 
-    # Convert top-left to center coordinates
+    
     cx = boxes[:, 0] + boxes[:, 2] / 2
     cy = boxes[:, 1] + boxes[:, 3] / 2
 
     return torch.stack([cx, cy, boxes[:, 2], boxes[:, 3]], dim=1)
 
 def get_loss_fn(config):
-    # 1. Initialize the matcher
     matcher = HungarianMatcher(
     cost_class=1.0,
     cost_bbox=5.0,
@@ -65,7 +68,7 @@ def get_loss_fn(config):
     }
     eos_coef = 0.1  # weight for no-object class
     criterion = SetCriterion(
-        num_classes=config.num_classes, #+1,
+        num_classes=config.num_classes,
         matcher=matcher,
         weight_dict=weight_dict,
         eos_coef=eos_coef,
@@ -73,12 +76,15 @@ def get_loss_fn(config):
     )
     return criterion, weight_dict
 
+
 @hydra.main(version_base=None, config_path='',
             config_name='config')
 def main(config):
     wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
     global_step = 0
     device = torch.device(config.device)
+
+    # Load correct model
     if config.model=='orgDETR':
         model = instantiate(config.org_detr)
         checkpoint_dir = config.train.org_checkpoint_dir
@@ -90,10 +96,14 @@ def main(config):
     else:
         raise ValueError(f"Unknown model type: {config.model}")
     os.makedirs(checkpoint_dir, exist_ok=True)
-    optimizer = instantiate(config.optimizer, params=model.parameters())
+
+    # Define optimizer and scheduler
+    #optimizer = instantiate(config.optimizer, params=model.parameters())
+    optimizer = AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
     resume_from_scratch = config.train.from_scratch
     
+    # Load checkpoint if exists and configured
     if os.path.exists(resume_checkpoint_dir) and not resume_from_scratch:
         print(f"Loading model from {checkpoint_dir}")
         checkpoint = torch.load(resume_checkpoint_dir, map_location=device)
@@ -106,6 +116,7 @@ def main(config):
         start_epoch = 0
         print("No checkpoint found, starting from scratch.")
     
+    # Load data
     model.to(device)
     full_ds, _ = get_dataloader(config)    
     n_total = len(full_ds)
@@ -116,12 +127,24 @@ def main(config):
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False)
     
+    # Loss function
     criterion, weight_dict = get_loss_fn(config)
     criterion = criterion.to(device)
     batch_size = config.data.batch_size
     print(f"Batch size: {batch_size}")
     print("Training started")
     model.train()
+
+    # Scheduler
+    num_training_steps = config.train.epochs * len(train_loader)
+    num_warmup_steps = config.train.warmup_steps
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps,
+    )
+
+    # Training loop
     for epoch in range(start_epoch, config.train.epochs): 
         for images, data in train_loader:
             if config.data.load_images:
@@ -129,14 +152,14 @@ def main(config):
                 raw_logits, raw_pred_boxes = model.forward(inputs)
             else:
                 inputs = data['clip_vision'].to(device)
-                raw_logits, raw_pred_boxes = model.forward(inputs.unsqueeze(1))
+                raw_logits, raw_pred_boxes = model.forward(inputs)
             
             labels = data["labels"].to(device)
             boxes   = data["bbox"].to(device)            # shape (B,4)
             widths  = data["width"].tolist()             # [w1, w2, …]
             heights = data["height"].tolist()            # [h1, h2, …]
 
-            # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
+            # Normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
             converted_boxes = [
                 convert_boxes(box, (w, h)) 
                 for box, w, h in zip(boxes.unbind(0), widths, heights)
@@ -155,8 +178,8 @@ def main(config):
 
 
             targets = [
-            {"labels": lbl,    # (n_obj,)
-                "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
+            {"labels": lbl,   
+                "boxes":  box} 
             for lbl, box in zip(processed_labels, converted_boxes)
             ]
  
@@ -172,10 +195,10 @@ def main(config):
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
-
-            # Log both total and individual losses
+            scheduler.step()
+            
             log_dict = {f"loss/{k}": v.item() for k, v in loss_dict.items()}
-            # print(global_step, log_dict)
+            
             log_dict.update({
                 "epoch": epoch,
                 "loss/total": total_loss.item(),
@@ -204,7 +227,7 @@ def main(config):
                     raw_logits, raw_pred_boxes = model.forward(inputs)
                 else:
                     inputs = data['clip_vision'].to(device)
-                    raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
+                    raw_logits, raw_pred_boxes = model(inputs)
                     
                 pred_boxes = raw_pred_boxes.sigmoid()
                 labels = data["labels"].to(device)
@@ -212,7 +235,7 @@ def main(config):
                 widths  = data["width"].tolist()             # [w1, w2, …]
                 heights = data["height"].tolist()            # [h1, h2, …]
 
-                # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
+                # Normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
                 converted_boxes = [
                     convert_boxes(box, (w, h)) 
                     for box, w, h in zip(boxes.unbind(0), widths, heights)
@@ -230,8 +253,8 @@ def main(config):
                     processed_labels.append(lbl)
 
                 targets = [
-                    {"labels": lbl,    # (n_obj,)
-                    "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
+                    {"labels": lbl,   
+                    "boxes":  box}  
                     for lbl, box in zip(processed_labels, converted_boxes)
                 ]
 

@@ -17,12 +17,12 @@ org_detr:
 
 adapter_detr:
   _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
-  train_decoder: true
+  train_decoder: false
   adapter:
-    _target_: models.transformerAdapter.TransformerAdapter    # Replace with actual module path
+    _target_: models.qFormerAdapter.QFormerAdapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
     output_dim: 256
-    seq_len: 1
+    #seq_len: 197
   train_prediction_heads: true
 
 optimizer:
@@ -38,18 +38,18 @@ train:
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
   save_interval: 10000
   from_scratch: true
-
+  warmup_steps: 500
 wandb:
   project: "full-image"
   entity: "visiblyintelligent"
-  name: "back-bone-freeze"
+  name: "transformer-adapter-no-decoder-1e-4"
 
 data:
   dataset_name: "JierunChen/Ref-L4"
-  feature_path: "./data/longclip-emb"
+  feature_path: "./data/full-longclip-emb"
   batch_size: 32
   shuffle: true
-  split: "all"
+  split: "val"
   load_images: false
   load_features: true
   num_workers: 1

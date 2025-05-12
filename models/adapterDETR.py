@@ -123,11 +123,14 @@ class AdapterDetr(nn.Module):
                 transformed_encoder_hidden_states.device,
             )
 
+        encoder_attn_mask = torch.ones(batch_size, transformed_seq_len, device=transformed_encoder_hidden_states.device)
+
         decoder_outputs = self.decoder(
-            inputs_embeds=initial_query_embeddings,
-            encoder_hidden_states=transformed_encoder_hidden_states,
-            query_position_embeddings=query_pos_embed,
-            object_queries=encoder_pos_embed,
+            inputs_embeds = transformed_encoder_hidden_states,
+            encoder_hidden_states = None,
+            encoder_attention_mask = None,
+            query_position_embeddings = initial_query_embeddings,
+            object_queries = None,
         )
 
         last_hidden_state = (
