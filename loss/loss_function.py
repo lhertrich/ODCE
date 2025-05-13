@@ -1,4 +1,4 @@
-# Install detr: pip install detr
+
 from detr.models.matcher import HungarianMatcher
 from detr.models.detr    import SetCriterion
 

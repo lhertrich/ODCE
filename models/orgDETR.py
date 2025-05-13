@@ -57,9 +57,6 @@ class Detr(nn.Module):
         self,
         input: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        # If the input is given before encoding, encode it
-    
         decoder_outputs = self.detr_model(input)
 
         last_hidden_state = (
