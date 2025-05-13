@@ -1,6 +1,6 @@
 num_classes: 365
-device: "cuda"  # or "cpu" depending on your setup
-model: orgDETR # [org_DETR, adapter_detr]
+device: "cpu"  # or "cpu" depending on your setup
+model: orgDETR # [orgDETR, adapterDETR]
 org_detr:
   _target_: models.orgDETR.Detr  # Replace with actual module path
   # num_queries: 100
@@ -43,7 +43,7 @@ wandb:
 data:
   dataset_name: "JierunChen/Ref-L4"
   feature_path: "./data/longclip-emb"
-  batch_size: 32
+  batch_size: 16
   shuffle: true
   split: "all"
   load_images: true

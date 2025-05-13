@@ -64,7 +64,7 @@ class RefL4Dataset(Dataset):
         self.dataset = datasets.load_dataset(self.dataset_path)
         if self.load_images:
             image_tar_path = f"{self.dataset_path}/{self.images_file}"
-            # manually download the images.tar.gz file
+            
             if self.dataset_path == "JierunChen/Ref-L4":
                 image_tar_path = hf_hub_download(
                     repo_id="JierunChen/Ref-L4",
