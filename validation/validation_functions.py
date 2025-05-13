@@ -1,5 +1,16 @@
+import sys
+import os
+#Set parent path to the root of the repo, to be able to import models
+parent_dir = os.path.abspath(os.path.join(os.getcwd(), '..'))
+sys.path.insert(0, parent_dir)
+
 import torch
 import torchmetrics
+import torchvision.ops
+
+# Add the 'detr' package's root to sys.path for its inner imports to work
+detr_root = os.path.join(parent_dir, 'detr') # ~/ODCE/detr/
+sys.path.insert(0, detr_root)
 
 from detr.models.detr import SetCriterion
 from detr.models.matcher import HungarianMatcher
@@ -7,69 +18,6 @@ from detr.models.matcher import HungarianMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 
-def inference(
-    image: Image,
-    image_feature: torch.Tensor,
-    ground_truth_box,
-    model,
-    device,
-    threshold: float = 0.5,
-    output_path: str = "output.png",
-):
-    """
-    Return the class label and bounding box for a single image.
-    Ground truth box (from Ref-L4 dataset): xywh format.
-    """
-    model.eval()
-    model.to(device)
-    image_feature = image_feature.to(device)
-
-    with torch.no_grad():
-        raw_logits, raw_pred_boxes = model.forward(
-            image_feature.view(1, -1).unsqueeze(1)
-        )
-
-    raw_pred_boxes = raw_pred_boxes.sigmoid()
-    probs = raw_logits.softmax(-1)[0]  # shape: [num_queries, num_classes]
-    scores, labels = probs.max(-1)  # shape: [num_queries]
-
-    keep = scores > threshold
-    boxes = raw_pred_boxes[0][keep]  # shape: [num_kept_queries, 4]
-    labels = labels[keep]
-    scores = scores[keep]
-
-    # Convert predicted boxes from [cx, cy, w, h] to [x0, y0, x1, y1]
-    w, h = image.size
-    boxes_xyxy = []
-
-    for box in boxes:
-        cx, cy, bw, bh = box
-        x0 = (cx - bw / 2) * w
-        y0 = (cy - bh / 2) * h
-        x1 = (cx + bw / 2) * w
-        y1 = (cy + bh / 2) * h
-        boxes_xyxy.append([x0.item(), y0.item(), x1.item(), y1.item()])
-
-    # Convert ground truth box from xywh to xyxy
-    x, y, w, h = ground_truth_box
-    ground_truth_box = [x, y, x + w, y + h]
-
-    draw = ImageDraw.Draw(image)
-
-    for box, label_id, score in zip(boxes_xyxy, labels, scores):
-        x0, y0, x1, y1 = box
-        color = "red"
-        draw.rectangle([x0, y0, x1, y1], outline=color, width=3)
-        draw.text((x0, y0), f"{label_id}: {score:.2f}", fill=color)
-
-    draw.rectangle(ground_truth_box, outline="green", width=3)
-
-    image.save(output_path)  # Save the image with bounding boxes
-
-    return image
-
-
-##### HELPERS
 def get_loss_fn(config):
     # 1. Initialize the matcher
     matcher = HungarianMatcher(
@@ -93,6 +41,15 @@ def get_loss_fn(config):
     )
     return criterion, weight_dict
 
+def cxcywh_to_xyxy(boxes_cxcywh):
+    cx, cy, w, h = boxes_cxcywh.unbind(-1)
+    x1 = cx - 0.5 * w
+    y1 = cy - 0.5 * h
+    x2 = cx + 0.5 * w
+    y2 = cy + 0.5 * h
+    return torch.stack((x1, y1, x2, y2), dim=-1)
+
+
 def convert_boxes(boxes, image_size=None):
     if boxes.dim() == 1:
         boxes = boxes.unsqueeze(0)
@@ -111,25 +68,24 @@ def convert_boxes(boxes, image_size=None):
 
     return torch.stack([cx, cy, boxes[:, 2], boxes[:, 3]], dim=1)
 
-
 def eval_model(
         config,
         model,
         dataset,
-        device,
+        iou_threshold
 ):
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.data.batch_size, shuffle=False)
+    device = torch.device(config.device)
     
     criterion, weight_dict = get_loss_fn(config)
     criterion = criterion.to(device)
 
-    map_calculator = torchmetrics.detection.MeanAveragePrecision(box_format='xyxy')
-    map_calculator = map_calculator.to(device)
-
-    successful_hits = 0
-    total_images_with_gt_objects = 0
-
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.data.batch_size, shuffle=False)
-    device = torch.device(config.device)
+    case1_counts = 0  # GT class matches predicted class, bounding boxes overlap
+    case2_counts = 0  # Overlapping bounding box, right class, but not the same prediction
+    case3_counts = 0  # Overlapping bounding box, but not the right class
+    case4_counts = 0  # Right class in prediction, but no overlapping box
+    total_gt_objects_in_dataset = 0 
+    
     model.eval()
     model.to(device)
     val_loss = 0.0
@@ -138,7 +94,7 @@ def eval_model(
         for images, data in dataloader:
 
             inputs = data['clip_vision'].to(device)
-            raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
+            raw_logits, raw_pred_boxes = model(inputs)
                 
             pred_boxes = raw_pred_boxes.sigmoid()
             labels = data["labels"].to(device)
@@ -157,17 +113,21 @@ def eval_model(
                 # If label is scalar (0-dim), convert to 1D tensor
                 if lbl.dim() == 0:
                     lbl = lbl.unsqueeze(0)
-                # If label is empty, add a default "no object" label (assuming class 0 is background)
-                #TODO check if 0 is background class
-                if lbl.numel() == 0:
-                    lbl = torch.tensor([0], device=lbl.device)
-                processed_labels.append(lbl)
+                processed_labels.append(lbl) # Append the label (potentially empty tensor)
 
-            targets = [
-                {"labels": lbl,    # (n_obj,)
-                "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
-                for lbl, box in zip(processed_labels, converted_boxes)
-            ]
+            targets = []
+            for i in range(len(processed_labels)):
+                current_labels = processed_labels[i]
+                current_boxes = converted_boxes[i] # Assumes converted_boxes has corresponding shape
+                # Ensure box tensor is also empty if labels are empty
+                if current_labels.numel() == 0:
+                     if current_boxes.numel() != 0: # Check if boxes need explicit emptying
+                          current_boxes = torch.empty((0, 4), device=current_boxes.device, dtype=current_boxes.dtype)
+            
+                targets.append({
+                    "labels": current_labels,  # Might be tensor([])
+                    "boxes":  current_boxes    # Might be tensor([], size=(0, 4))
+                })
 
             outputs = {
                 "pred_logits": raw_logits,
@@ -178,11 +138,144 @@ def eval_model(
             total_loss = sum(weighted_loss_dict.values())
             val_loss += total_loss.item()
 
+            # Custom evaluation. Count the number of occurrences where 
+            #1) ground truth class matches with a predicted class and their bounding boxes overlap (to a certain threshold)
+            #2) There is a overlapping bounding box and the right class but they aren't the same prediction
+            #3) There is a threshold-overlapping bounding box but not the right class
+            #4) There is a right class in the prediction but no overlapping box
 
-            for i in range(len(raw_logits)):
+            total_gt_objects_in_dataset += sum(t['labels'].numel() for t in targets)
+            batch_matched_indices = criterion.matcher(outputs, targets) # List of (pred_idx, gt_idx) tuples for each image in batch
+            
+            for b in range(raw_logits.shape[0]): # Iterate over each image in the batch
+                out_logits_img = raw_logits[b]      # Shape: (num_queries, num_classes)
+                pred_boxes_img = pred_boxes[b]      # Shape: (num_queries, 4) in cxcywh normalized
+                target_img = targets[b]           # Dict: {'labels': (num_gt,), 'boxes': (num_gt, 4)}
                 
+                # matched_pred_indices_img are indices for predicted queries
+                # matched_gt_indices_img are indices for ground truth objects in target_img
+                matched_pred_indices_img, matched_gt_indices_img = batch_matched_indices[b]
 
+                num_gt_img = target_img['labels'].shape[0]
+                if num_gt_img == 0:
+                    continue # No ground truth objects in this image to evaluate against
 
-            count    += 1
+                num_pred_img = pred_boxes_img.shape[0]
+                gt_categorized_flags = [False] * num_gt_img #If image successfully sorted to one of the 4 categories
 
+                # Convert boxes to xyxy for IoU calculation
+                pred_boxes_img_xyxy = cxcywh_to_xyxy(pred_boxes_img)
+                gt_boxes_img_xyxy = cxcywh_to_xyxy(target_img['boxes'])
+                
+                pred_classes_img = torch.argmax(out_logits_img, dim=-1) # Shape: (num_queries,)
+
+                # Case 1: Ground truth class matches with a *matched* predicted class and their bounding boxes overlap
+                for k in range(len(matched_pred_indices_img)):
+                    p_idx = matched_pred_indices_img[k]
+                    t_idx = matched_gt_indices_img[k]
+
+                    if gt_categorized_flags[t_idx]:
+                        continue
+
+                    # Unsqueeze to make them [1,4] for box_iou
+                    iou_matrix = torchvision.ops.box_iou(pred_boxes_img_xyxy[p_idx].unsqueeze(0), 
+                                                         gt_boxes_img_xyxy[t_idx].unsqueeze(0))
+                    iou = iou_matrix[0, 0]
+                    
+                    pred_c = pred_classes_img[p_idx]
+                    gt_c = target_img['labels'][t_idx]
+
+                    if pred_c == gt_c and iou > iou_threshold:
+                        case1_counts += 1
+                        gt_categorized_flags[t_idx] = True
+                
+                # Case 2: There is an overlapping bounding box and the right class but they aren't the same prediction
+                for t_idx in range(num_gt_img):
+                    if gt_categorized_flags[t_idx]:
+                        continue
+
+                    gt_b_xyxy_single = gt_boxes_img_xyxy[t_idx].unsqueeze(0) # Shape [1,4]
+                    gt_c = target_img['labels'][t_idx]
+                    
+                    for p_idx in range(num_pred_img):
+                        # Check if this (p_idx, t_idx) pair was THE Hungarian match for t_idx
+                        is_p_idx_the_hungarian_match_for_t_idx = False
+                        for k_match in range(len(matched_pred_indices_img)):
+                            if matched_pred_indices_img[k_match] == p_idx and \
+                               matched_gt_indices_img[k_match] == t_idx:
+                                is_p_idx_the_hungarian_match_for_t_idx = True
+                                break
+                        
+                        if is_p_idx_the_hungarian_match_for_t_idx:
+                            continue # This pred was optimally matched to this GT. If not Case 1, not Case 2 with this pred.
+
+                        pred_b_xyxy_single = pred_boxes_img_xyxy[p_idx].unsqueeze(0) # Shape [1,4]
+                        pred_c = pred_classes_img[p_idx]
+                        
+                        iou_matrix = torchvision.ops.box_iou(pred_b_xyxy_single, gt_b_xyxy_single)
+                        iou = iou_matrix[0, 0]
+
+                        if pred_c == gt_c and iou > iou_threshold:
+                            case2_counts += 1
+                            gt_categorized_flags[t_idx] = True
+                            break # This GT object is now categorized for Case 2
+
+                # Case 3: There is a threshold-overlapping bounding box but not the right class
+                for t_idx in range(num_gt_img):
+                    if gt_categorized_flags[t_idx]:
+                        continue
+
+                    gt_b_xyxy_single = gt_boxes_img_xyxy[t_idx].unsqueeze(0)
+                    gt_c = target_img['labels'][t_idx] # Needed to check pred_c != gt_c
+
+                    for p_idx in range(num_pred_img):
+                        pred_b_xyxy_single = pred_boxes_img_xyxy[p_idx].unsqueeze(0)
+                        pred_c = pred_classes_img[p_idx]
+                        
+                        iou_matrix = torchvision.ops.box_iou(pred_b_xyxy_single, gt_b_xyxy_single)
+                        iou = iou_matrix[0, 0]
+
+                        if iou > iou_threshold and pred_c != gt_c:
+                            case3_counts += 1
+                            gt_categorized_flags[t_idx] = True
+                            break # This GT object is now categorized for Case 3
+                
+                # Case 4: There is a right class in the prediction but no overlapping box (or low overlap)
+                for t_idx in range(num_gt_img):
+                    if gt_categorized_flags[t_idx]:
+                        continue
+
+                    gt_b_xyxy_single = gt_boxes_img_xyxy[t_idx].unsqueeze(0)
+                    gt_c = target_img['labels'][t_idx]
+
+                    for p_idx in range(num_pred_img):
+                        pred_b_xyxy_single = pred_boxes_img_xyxy[p_idx].unsqueeze(0)
+                        pred_c = pred_classes_img[p_idx]
+                        
+                        iou_matrix = torchvision.ops.box_iou(pred_b_xyxy_single, gt_b_xyxy_single)
+                        iou = iou_matrix[0, 0]
+
+                        if pred_c == gt_c and iou <= iou_threshold:
+                            case4_counts += 1
+                            gt_categorized_flags[t_idx] = True
+                            break # This GT object is now categorized for Case 4
+
+                    
     
+    # Calculate average loss
+    avg_val_loss = val_loss / len(dataloader)
+    
+    custom_evaluation_results = {
+        "case1_gt_match_pred_class_box_overlap": case1_counts,
+        "case2_overlap_right_class_not_hungarian_match": case2_counts,
+        "case3_overlap_wrong_class": case3_counts,
+        "case4_right_class_no_overlap": case4_counts,
+        "total_evaluated_gt_objects": total_gt_objects_in_dataset
+    }
+    
+    total_gt_objects_in_dataset = 0
+    for _, data_item in dataloader:
+        for label_tensor in data_item['labels']:
+             total_gt_objects_in_dataset += label_tensor.numel()
+
+    return avg_val_loss, custom_evaluation_results
