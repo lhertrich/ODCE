@@ -25,7 +25,7 @@ adapter_detr:
     _target_: models.adapter.Adapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
     output_dim: 256
-    seq_len: 1
+    seq_len: 197
   train_prediction_heads: false
 
 train:
@@ -42,10 +42,10 @@ wandb:
 
 data:
   dataset_name: "JierunChen/Ref-L4"
-  feature_path: "../data/longclip-emb"
+  feature_path: "../data/full-longclip-emb"
   batch_size: 1
   shuffle: false
-  split: "test"
+  split: "val"
   load_images: true
   load_features: true
   num_workers: 1
