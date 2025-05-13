@@ -5,6 +5,7 @@ import torch
 from torchvision.transforms import ToTensor
 from torchvision import transforms as T
 
+
 class RefL4Dataset(Dataset):
     def __init__(
         self,
@@ -36,11 +37,9 @@ class RefL4Dataset(Dataset):
             assert (
                 self.vision_features is not None and self.text_features is not None
             ), "CLIP features not found in specified directory"
-            
+
     def _load_dataset(self):
-        self.dataset_df = pd.read_parquet(
-            f"{self.dataset_path}/{self.split}.parquet"
-        )
+        self.dataset_df = pd.read_parquet(f"{self.dataset_path}/{self.split}.parquet")
 
     def _load_clip_features(self):
         self.vision_features = torch.load(
@@ -49,22 +48,27 @@ class RefL4Dataset(Dataset):
         self.text_features = torch.load(
             f"{self.feature_dir}/{self.split}_text_features.pt"
         )
-        
-        assert len(self.vision_features) == len(self.dataset_df), "Mismatch in number of vision features and dataset samples"
-        assert len(self.text_features) == len(self.dataset_df), "Mismatch in number of text features and dataset samples"
-        
+
+        assert len(self.vision_features) == len(
+            self.dataset_df
+        ), "Mismatch in number of vision features and dataset samples"
+        assert len(self.text_features) == len(
+            self.dataset_df
+        ), "Mismatch in number of text features and dataset samples"
+
     def __len__(self):
         return len(self.dataset_df)
-    
+
     def __getitem__(self, idx):
         sample = self.dataset_df.iloc[idx]
         image_path = f"{self.dataset_path}/images/{sample['file_name']}"
-        
+
         output = {
             "bbox": torch.tensor(sample["bbox"], dtype=torch.float32),
             "label": int(sample["ori_category_id"].split("_")[1]) - 1,
+            "image_file": image_path,
         }
-        
+
         if self.load_images:
             image = Image.open(image_path).convert("RGB")
             if self.transforms:
@@ -72,33 +76,35 @@ class RefL4Dataset(Dataset):
             else:
                 image = ToTensor()(image)
             output["image"] = image
-        
+
         if self.load_features:
             vision_feature = self.vision_features[idx]
             text_feature = self.text_features[idx]
             output["vision_feature"] = vision_feature
             output["text_feature"] = text_feature
-        
+
         return output
-            
-            
+
+
 if __name__ == "__main__":
-    normalize = T.Compose([
-        T.Resize((224, 224)),
-        T.ToTensor(),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    normalize = T.Compose(
+        [
+            T.Resize((224, 224)),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
     dataset = RefL4Dataset(
         dataset_path="./dataset/refl4",
         split="val",
         custom_transforms=normalize,
         load_images=True,
         load_features=False,
-        feature_dir=None
+        feature_dir=None,
     )
-    
+
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-    
+
     for batch in dataloader:
         print(batch)
         break
