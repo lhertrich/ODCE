@@ -43,15 +43,18 @@ def get_clip_features(
             for batch in tqdm(dataloader, total=len(dataloader)):
                 images, others = batch
                 captions = [x["caption"] for x in others]
+                # print(model)
+                # import pdb
 
+                # pdb.set_trace()
                 # Get vision features
                 images = images.to(device)
-                vision_output = model.encode_image(images)
+                vision_output = model.visual.encode_visual_full(images)
                 vision_features.append(vision_output.cpu())
 
                 # Tokenize captions and get language features
                 token_inputs = longclip.tokenize(captions, truncate=True).to(device)
-                language_output = model.encode_text(token_inputs)
+                language_output = model.encode_text_full(token_inputs)
                 language_features.append(language_output.cpu())
 
         vision_features = torch.cat(vision_features, dim=0)
@@ -74,10 +77,10 @@ def get_clip_features(
 if __name__ == "__main__":
     # for split in ["val", "train"]:
     model_path = "./Long_CLIP/checkpoints/longclip-B.pt"
-    for split in ["all"]:
+    for split in ["val"]:
         # Load the dataset
         ref_l4_dataset = RefL4Dataset("JierunChen/Ref-L4", split=split)
-        save_path = f"./features/ref_l4/{split}"
+        save_path = f"./sequence_features/ref_l4/{split}"
         vision_features, language_features = get_clip_features(
             ref_l4_dataset,
             batch_size=32,
