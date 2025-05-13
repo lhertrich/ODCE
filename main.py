@@ -79,20 +79,24 @@ def main(config):
     wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
     global_step = 0
     device = torch.device(config.device)
-    checkpoint_dir = config.train.checkpoint_dir  
-    os.makedirs(checkpoint_dir, exist_ok=True)
     if config.model=='orgDETR':
         model = instantiate(config.org_detr)
+        checkpoint_dir = config.train.org_checkpoint_dir
+        resume_checkpoint_dir = config.train.org_resume_checkpoint_dir
+        print(f"Loading model from {checkpoint_dir}")
     elif config.model=='adapterDETR':  
         model = instantiate(config.adapter_detr)
+        checkpoint_dir = config.train.checkpoint_dir
+        resume_checkpoint_dir = config.train.resume_checkpoint_dir
+        print(f"Loading model from {checkpoint_dir}")
     else:
         raise ValueError(f"Unknown model type: {config.model}")
-    
+    os.makedirs(checkpoint_dir, exist_ok=True)
     optimizer = instantiate(config.optimizer, params=model.parameters())
     last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
     
-    if os.path.exists(config.train.resume_checkpoint_dir):
-        checkpoint = torch.load(config.train.resume_checkpoint_dir, map_location=device)
+    if os.path.exists(resume_checkpoint_dir):
+        checkpoint = torch.load(resume_checkpoint_dir, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1  # Resume from next epoch
@@ -114,7 +118,8 @@ def main(config):
     
     criterion, weight_dict = get_loss_fn(config)
     criterion = criterion.to(device)
-    
+    batch_size = config.data.batch_size
+    print(f"Batch size: {batch_size}")
     print("Training started")
     model.train()
     for epoch in range(start_epoch, config.train.epochs): 

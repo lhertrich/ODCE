@@ -51,7 +51,7 @@ class Detr(nn.Module):
         else:
             print("DETR prediction heads are trainable.")
 
-        print("AdapterDetrModel initialized.")
+        print("Original DETR initialized.")
 
     def forward(
         self,

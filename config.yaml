@@ -30,10 +30,12 @@ optimizer:
 
 train:
   epochs: 30
-  batch_size: 32
+  batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
+  org_checkpoint_dir: "./checkpoints/org_detr"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
-  save_interval: 50
+  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
+  save_interval: 10000
 
 wandb:
   project: "full-image"
