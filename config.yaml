@@ -3,7 +3,7 @@ device: "cuda"  # or "cpu" depending on your setup
 model: adapterDETR # [orgDETR, adapterDETR]
 
 org_detr:
-  _target_: models.orgDETR.Detr  # Replace with actual module path
+  _target_: model_code.orgDETR.Detr  # Replace with actual module path
   # num_queries: 100
   # hidden_dim: 256
   # nheads: 8
@@ -16,12 +16,12 @@ org_detr:
   # return_intermediate_dec: false
 
 adapter_detr:
-  _target_: models.adapterDETR.AdapterDetr
+  _target_: model_code.adapterDETR.AdapterDetr
   train_decoder: true
   train_class_head: true
   train_bbox_head: true
   adapter:
-    _target_: models.adapter.Adapter    # Replace with actual module path
+    _target_: model_code.transformerAdapter.TransformerAdapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
     output_dim: 256
     seq_len: 197
@@ -34,7 +34,7 @@ train:
   epochs: 30
   batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
-  org_checkpoint_dir: "./checkpoints/org_detr"
+  org_checkpoint_dir: "./checkpoints/rq1-image-only"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
   save_interval: 10000
@@ -45,7 +45,7 @@ train:
 wandb:
   project: "full-image"
   entity: "visiblyintelligent"
-  name: "transformer-adapter-no-decoder-1e-4"
+  name: "transformer-adapter-torch-hub"
 
 data:
   dataset_name: "JierunChen/Ref-L4"

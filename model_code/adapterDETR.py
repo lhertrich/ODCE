@@ -6,7 +6,12 @@ import torch.nn.functional as F
 import types
 from transformers import DetrForObjectDetection, DetrImageProcessor
 from .adapter import Adapter
+from detr.models import backbone
+import os
+from pathlib import Path
+from types import SimpleNamespace
 
+os.environ["TORCH_HOME"] = str(Path("../detr").absolute())
 
 def get_sinusoidal_positional_embedding(batch_size, seq_len, hidden_dim, device):
     position = torch.arange(seq_len, dtype=torch.float32, device=device).unsqueeze(
@@ -38,7 +43,7 @@ class AdapterDetr(nn.Module):
         self,
         adapter: nn.Module,
         repo_dir: str = "facebookresearch/detr",
-        model_name: str = "detr-resnet-50",
+        model_name: str = "detr_resnet50",
         train_decoder: bool = True,  
         train_class_head: bool = True,  
         train_bbox_head: bool = True,
@@ -50,9 +55,12 @@ class AdapterDetr(nn.Module):
         self.encoder = encoder
 
         print(f"Loading model and processor from {repo_dir}...")
-        self.detr_full_model = torch.hub.load(repo_dir, model_name, weights=True)
-        self.config = self.detr_full_model.config  # Contains num_labels, id2label etc.
-
+        self.detr_full_model = torch.hub.load(repo_dir, model_name, pretrained=True)
+        self.config = SimpleNamespace()
+        self.config.d_model = 256
+        self.config.num_classes = 365
+        # TODO: add id2label
+        # self.config.id2label = {i: f"class_{i}" for i in range(91)}
         # Get decoder out of DETR model
         self.decoder = self.detr_full_model.transformer.decoder
 
@@ -150,13 +158,13 @@ class AdapterDetr(nn.Module):
             query_pos=query_pos             # Position embeddings for queries
         )
         
-        # Decoder outputs is a tensor of shape (num_queries, batch_size, hidden_dim)
-        # Reshape it to (batch_size, num_queries, hidden_dim)
-        decoder_outputs = decoder_outputs.permute(1, 0, 2)
+        
+        last_hidden_state = decoder_outputs[-1]  # Get last layer, shape: [num_queries, batch_size, hidden_dim] 
+        last_hidden_state = last_hidden_state.permute(1, 0, 2)  # -> [batch_size, num_queries, hidden_dim]
         
         # Apply classification and bbox heads
-        raw_logits = self.classification_head(decoder_outputs)
-        raw_pred_boxes = self.bbox_regression_head(decoder_outputs).sigmoid()
+        raw_logits = self.classification_head(last_hidden_state)
+        raw_pred_boxes = self.bbox_regression_head(last_hidden_state).sigmoid()
         
         # If bbox_regression_head outputs a list of tensors (one per layer), get the last one
         if isinstance(raw_pred_boxes, list):
