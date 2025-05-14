@@ -138,8 +138,9 @@ def main(config):
                 for box, w, h in zip(boxes.unbind(0), widths, heights)
             ]
 
+    
             processed_labels = []
-            for lbl in labels.unbind(0):
+            for i, lbl in enumerate(labels.unbind(0)):
                 # If label is scalar (0-dim), convert to 1D tensor
                 if lbl.dim() == 0:
                     lbl = lbl.unsqueeze(0)
@@ -147,6 +148,12 @@ def main(config):
                 #TODO check if 0 is background class
                 if lbl.numel() == 0:
                     lbl = torch.tensor([0], device=lbl.device)
+
+                valid_mask = (lbl >= 0) & (lbl < config.num_classes)
+                if not valid_mask.all():
+                    print(f"WARNING: Found invalid label(s): {lbl[~valid_mask].tolist()}")
+                    # Replace invalid labels with 0 (background)
+                    lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
                 processed_labels.append(lbl)
 
 
@@ -168,6 +175,7 @@ def main(config):
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
+            scheduler.step()
 
             # Log both total and individual losses
             log_dict = {f"loss/{k}": v.item() for k, v in loss_dict.items()}
@@ -200,7 +208,7 @@ def main(config):
                     raw_logits, raw_pred_boxes = model.forward(inputs)
                 else:
                     inputs = data['clip_vision'].to(device)
-                    raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
+                    raw_logits, raw_pred_boxes = model(inputs)
                     
                 pred_boxes = raw_pred_boxes.sigmoid()
                 labels = data["labels"].to(device)
