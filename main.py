@@ -5,32 +5,11 @@ from hydra.utils import instantiate
 from detr.models.matcher import HungarianMatcher
 from detr.models.detr    import SetCriterion
 from data.dataloader import get_dataloader
+from torch.optim.adamw import AdamW
+from transformers import get_linear_schedule_with_warmup
 import hydra
 import os
 
-def convert_boxes_to_cxcywh(boxes, image_size):
-    """
-    boxes: Tensor[N,4] in (x_min, y_min, x_max, y_max), absolute pixels
-    image_size: (width, height)
-    returns: Tensor[N,4] in (cx, cy, w, h), normalized to [0,1]
-    """
-    if boxes.dim() == 1:
-        boxes = boxes.unsqueeze(0)
-
-    width, height = image_size
-    x_min, y_min, x_max, y_max = boxes.unbind(1)
-    w = x_max - x_min
-    h = y_max - y_min
-    cx = x_min + 0.5 * w
-    cy = y_min + 0.5 * h
-
-    # normalize
-    cx = cx / width
-    cy = cy / height
-    w  = w  / width
-    h  = h  / height
-
-    return torch.stack([cx, cy, w, h], dim=1)
 
 def convert_boxes(boxes, image_size=None):
     if boxes.dim() == 1:
@@ -79,33 +58,38 @@ def main(config):
     wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
     global_step = 0
     device = torch.device(config.device)
+
+    # Init model
     if config.model=='orgDETR':
         model = instantiate(config.org_detr)
         checkpoint_dir = config.train.org_checkpoint_dir
         resume_checkpoint_dir = config.train.org_resume_checkpoint_dir
-        print(f"Loading model from {checkpoint_dir}")
     elif config.model=='adapterDETR':  
         model = instantiate(config.adapter_detr)
         checkpoint_dir = config.train.checkpoint_dir
         resume_checkpoint_dir = config.train.resume_checkpoint_dir
-        print(f"Loading model from {checkpoint_dir}")
     else:
         raise ValueError(f"Unknown model type: {config.model}")
     os.makedirs(checkpoint_dir, exist_ok=True)
-    optimizer = instantiate(config.optimizer, params=model.parameters())
-    last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
     
-    if os.path.exists(resume_checkpoint_dir):
+    # Init optimizer
+    optimizer = AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
+    last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
+    resume_from_scratch = config.train.from_scratch
+
+    if os.path.exists(resume_checkpoint_dir) and not resume_from_scratch:
+        print(f"Loading model from {checkpoint_dir}")
         checkpoint = torch.load(resume_checkpoint_dir, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1  # Resume from next epoch
+        start_epoch = checkpoint['epoch'] + 1
         global_step = checkpoint['global_step']
         print(f"\nResumed training from {config.train.resume_checkpoint_dir} (epoch {checkpoint['epoch']}, step {global_step})")
     else: 
         start_epoch = 0
         print("No checkpoint found, starting from scratch.")
     
+    # Init dataloader
     model.to(device)
     full_ds, _ = get_dataloader(config)    
     n_total = len(full_ds)
@@ -116,12 +100,24 @@ def main(config):
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False)
     
+    # Loss function
     criterion, weight_dict = get_loss_fn(config)
     criterion = criterion.to(device)
     batch_size = config.data.batch_size
     print(f"Batch size: {batch_size}")
     print("Training started")
     model.train()
+
+    # Scheduler
+    num_training_steps = config.train.epochs * len(train_loader)
+    num_warmup_steps = config.train.warmup_steps
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps,
+    )
+
+    # Training loop
     for epoch in range(start_epoch, config.train.epochs): 
         for images, data in train_loader:
             if config.data.load_images:
@@ -129,14 +125,14 @@ def main(config):
                 raw_logits, raw_pred_boxes = model.forward(inputs)
             else:
                 inputs = data['clip_vision'].to(device)
-                raw_logits, raw_pred_boxes = model.forward(inputs.unsqueeze(1))
+                raw_logits, raw_pred_boxes = model.forward(inputs)
             
             labels = data["labels"].to(device)
-            boxes   = data["bbox"].to(device)            # shape (B,4)
-            widths  = data["width"].tolist()             # [w1, w2, …]
-            heights = data["height"].tolist()            # [h1, h2, …]
+            boxes = data["bbox"].to(device)            
+            widths = data["width"].tolist()             
+            heights = data["height"].tolist()            
 
-            # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
+            # Normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
             converted_boxes = [
                 convert_boxes(box, (w, h)) 
                 for box, w, h in zip(boxes.unbind(0), widths, heights)
@@ -155,14 +151,14 @@ def main(config):
 
 
             targets = [
-            {"labels": lbl,    # (n_obj,)
+                {"labels": lbl,    # (n_obj,)
                 "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
             for lbl, box in zip(processed_labels, converted_boxes)
             ]
  
             outputs = {
                 "pred_logits": raw_logits,
-                "pred_boxes": raw_pred_boxes.sigmoid()
+                "pred_boxes": raw_pred_boxes  # Maybe sigmoid?
             }
 
             loss_dict = criterion(outputs, targets)

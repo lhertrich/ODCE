@@ -1,6 +1,7 @@
 num_classes: 365
 device: "cuda"  # or "cpu" depending on your setup
-model: orgDETR # [org_DETR, adapter_detr]
+model: adapterDETR # [orgDETR, adapterDETR]
+
 org_detr:
   _target_: models.orgDETR.Detr  # Replace with actual module path
   # num_queries: 100
@@ -15,14 +16,15 @@ org_detr:
   # return_intermediate_dec: false
 
 adapter_detr:
-  _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
+  _target_: models.adapterDETR.AdapterDetr
   train_decoder: true
+  train_class_head: true
+  train_bbox_head: true
   adapter:
     _target_: models.adapter.Adapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
     output_dim: 256
-    seq_len: 1
-  train_prediction_heads: true
+    seq_len: 197
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -36,18 +38,21 @@ train:
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
   save_interval: 10000
-
+  from_scratch: true
+  lr: 1e-4
+  weight_decay: 1e-4
+  warmup_steps: 500
 wandb:
   project: "full-image"
   entity: "visiblyintelligent"
-  name: "back-bone-freeze"
+  name: "transformer-adapter-no-decoder-1e-4"
 
 data:
   dataset_name: "JierunChen/Ref-L4"
-  feature_path: "./data/longclip-emb"
-  batch_size: 1
+  feature_path: "./data/full-longclip-emb"
+  batch_size: 32
   shuffle: true
-  split: "all"
-  load_images: true
-  load_features: false
+  split: "val"
+  load_images: false
+  load_features: true
   num_workers: 1
