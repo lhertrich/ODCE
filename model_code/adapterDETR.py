@@ -1,17 +1,14 @@
 import torch
 import torch.nn as nn
-from typing import Tuple, List, Dict, Any, Union
+from typing import Tuple
 import math
 import torch.nn.functional as F
-import types
-from transformers import DetrForObjectDetection, DetrImageProcessor
-from .adapter import Adapter
-from detr.models import backbone
 import os
 from pathlib import Path
 from types import SimpleNamespace
+import json
 
-os.environ["TORCH_HOME"] = str(Path("../detr").absolute())
+#os.environ["TORCH_HOME"] = str(Path("../detr").absolute())
 
 def get_sinusoidal_positional_embedding(batch_size, seq_len, hidden_dim, device):
     position = torch.arange(seq_len, dtype=torch.float32, device=device).unsqueeze(
@@ -56,11 +53,21 @@ class AdapterDetr(nn.Module):
 
         print(f"Loading model and processor from {repo_dir}...")
         self.detr_full_model = torch.hub.load(repo_dir, model_name, pretrained=True)
+
+        project_root = Path(__file__).parent.parent.absolute()
+
+        with open(os.path.join(project_root, "data", "id2label.json"), "r") as f:
+            self.id2label = json.load(f)
+
+        with open(os.path.join(project_root, "data", "label2id.json"), "r") as f:
+            self.label2id = json.load(f)
+
         self.config = SimpleNamespace()
         self.config.d_model = 256
         self.config.num_classes = 365
-        # TODO: add id2label
-        # self.config.id2label = {i: f"class_{i}" for i in range(91)}
+        self.config.id2label = self.id2label
+        self.config.label2id = self.label2id
+        
         # Get decoder out of DETR model
         self.decoder = self.detr_full_model.transformer.decoder
 
