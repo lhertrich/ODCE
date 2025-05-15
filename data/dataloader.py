@@ -15,7 +15,7 @@ class RefL4Dataset(Dataset):
         self,
         dataset_path,
         split,
-        custom_transforms=None,
+        transforms=None,
         load_images=False,
         load_features=True,
         feature_dir=None,
@@ -24,7 +24,7 @@ class RefL4Dataset(Dataset):
         assert split in ["val", "test", "train"], "split should be val or test, train"
         self.dataset_path = dataset_path
         self.split = split
-        self.transforms = custom_transforms
+        self.transforms = transforms
         self.feature_dir = Path(feature_dir) if feature_dir else None
         self.load_images = load_images
         self.load_features = load_features
@@ -46,12 +46,13 @@ class RefL4Dataset(Dataset):
         self.dataset_df = pd.read_parquet(f"{self.dataset_path}/{self.split}.parquet")
 
     def _load_clip_features(self):
-        self.vision_features = torch.load(
-            f"{self.feature_dir}/{self.split}_vision_features.pt"
-        )
-        self.text_features = torch.load(
-            f"{self.feature_dir}/{self.split}_text_features.pt"
-        )
+        if self.feature_dir is not None:
+            self.vision_features = torch.load(
+                f"{self.feature_dir}/{self.split}_vision_features.pt"
+            )
+            self.text_features = torch.load(
+                f"{self.feature_dir}/{self.split}_text_features.pt"
+            )
 
         assert len(self.vision_features) == len(
             self.dataset_df
@@ -67,11 +68,14 @@ class RefL4Dataset(Dataset):
         sample = self.dataset_df.iloc[idx]
         image_path = f"{self.dataset_path}/images/{sample['file_name']}"
 
-        output = {
-            "bbox": torch.tensor(sample["bbox"], dtype=torch.float32),
-            "labels": int(sample["ori_category_id"].split("_")[1]) - 1,
-            "image_file": image_path,
-        }
+        # output = {
+        #     "bbox": torch.tensor(sample["bbox"], dtype=torch.float32),
+        #     "labels": int(sample["ori_category_id"].split("_")[1]) - 1,
+        #     "image_file": image_path,
+        # }
+        output = dict(sample)
+        output["bbox"] = torch.tensor(sample["bbox"], dtype=torch.float32)
+        output["labels"] = int(sample["ori_category_id"].split("_")[1]) - 1
 
         if self.load_images:
             image = Image.open(image_path).convert("RGB")
@@ -101,7 +105,7 @@ if __name__ == "__main__":
     dataset = RefL4Dataset(
         dataset_path="./dataset/refl4",
         split="val",
-        custom_transforms=normalize,
+        transforms=normalize,
         load_images=True,
         load_features=False,
         feature_dir=None,
