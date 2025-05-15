@@ -5,6 +5,10 @@ import torch
 from torchvision.transforms import ToTensor
 from torchvision import transforms as T
 
+"""
+Note: Bbox format is xywh.
+"""
+
 
 class RefL4Dataset(Dataset):
     def __init__(
@@ -17,7 +21,7 @@ class RefL4Dataset(Dataset):
         feature_dir=None,
     ):
         super(RefL4Dataset, self).__init__()
-        assert split in ["val", "test", "train"], "split should be val or test"
+        assert split in ["val", "test", "train"], "split should be val or test, train"
         self.dataset_path = dataset_path
         self.split = split
         self.transforms = custom_transforms
@@ -65,7 +69,7 @@ class RefL4Dataset(Dataset):
 
         output = {
             "bbox": torch.tensor(sample["bbox"], dtype=torch.float32),
-            "label": int(sample["ori_category_id"].split("_")[1]) - 1,
+            "labels": int(sample["ori_category_id"].split("_")[1]) - 1,
             "image_file": image_path,
         }
 
@@ -80,8 +84,8 @@ class RefL4Dataset(Dataset):
         if self.load_features:
             vision_feature = self.vision_features[idx]
             text_feature = self.text_features[idx]
-            output["vision_feature"] = vision_feature
-            output["text_feature"] = text_feature
+            output["clip_vision"] = vision_feature
+            output["clip_text"] = text_feature
 
         return output
 
