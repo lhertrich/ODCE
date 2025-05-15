@@ -4,8 +4,9 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from loguru import logger
-from dataset import RefL4Dataset
-from Long_CLIP.model import longclip
+
+from data.dataloader import RefL4Dataset
+from clip_features.Long_CLIP.model import longclip
 
 
 def get_clip_features(
@@ -27,7 +28,6 @@ def get_clip_features(
         shuffle=False,
         num_workers=8,
         pin_memory=True,
-        collate_fn=RefL4Dataset.collate_fn,
     )
 
     save_path_vision = Path(f"{save_path}/vision_features.pt")
@@ -41,17 +41,17 @@ def get_clip_features(
     else:
         with torch.no_grad():
             for batch in tqdm(dataloader, total=len(dataloader)):
-                images, others = batch
-                captions = [x["caption"] for x in others]
+                images = batch["image"]
+                captions = batch["caption"]
 
                 # Get vision features
                 images = images.to(device)
-                vision_output = model.encode_image(images)
+                vision_output = model.visual.encode_visual_full(images)
                 vision_features.append(vision_output.cpu())
 
                 # Tokenize captions and get language features
                 token_inputs = longclip.tokenize(captions, truncate=True).to(device)
-                language_output = model.encode_text(token_inputs)
+                language_output = model.encode_text_full(token_inputs)
                 language_features.append(language_output.cpu())
 
         vision_features = torch.cat(vision_features, dim=0)
@@ -72,14 +72,19 @@ def get_clip_features(
 
 
 if __name__ == "__main__":
-    # for split in ["val", "train"]:
-    model_path = "./Long_CLIP/checkpoints/longclip-B.pt"
-    for split in ["all"]:
+    model_path = "./clip_features/Long_CLIP/checkpoints/longclip-B.pt"
+    for split in ["train", "test"]:
         # Load the dataset
-        ref_l4_dataset = RefL4Dataset("JierunChen/Ref-L4", split=split)
-        save_path = f"./features/ref_l4/{split}"
+        dataset = RefL4Dataset(
+            dataset_path="./dataset/refl4",
+            split=split,
+            load_images=True,
+            load_features=False,
+            feature_dir=None,
+        )
+        save_path = f"./clip_features/new_sequence_features/ref_l4/{split}"
         vision_features, language_features = get_clip_features(
-            ref_l4_dataset,
+            dataset,
             batch_size=32,
             save_path=save_path,
             model_path=model_path,
