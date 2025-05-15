@@ -1,25 +1,19 @@
-from torch.utils.data import Dataset
-from PIL import Image
-import tarfile
-import io
-from tqdm import tqdm
 import torch
-import datasets
 from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
-import torch
 from torch.utils.data import Dataset
-from pathlib import Path
-import torch
-from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor
-from pathlib import Path
-import tarfile
+
 from PIL import Image
+import tarfile
 import io
-from tqdm import tqdm
 import datasets
+import json
+import os
+
+from tqdm import tqdm
+from pathlib import Path
+import io
 import logging
 from huggingface_hub import hf_hub_download
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +33,18 @@ class RefL4Dataset(Dataset):
     ):
         super(RefL4Dataset, self).__init__()
         assert split in ["val", "test", "all"], "split should be val or test"
+
+        project_root = Path(__file__).parent.absolute()
+
+        with open(os.path.join(project_root, "id2label.json"), "r") as f:
+            self.id2label = json.load(f)
+
+        with open(os.path.join(project_root, "label2id.json"), "r") as f:
+            self.label2id = json.load(f)
+
+        with open(os.path.join(project_root, "ref2o365.json"), "r") as f:
+            self.ref2o365 = json.load(f)
+
         self.dataset_path = dataset_path
         self.split = split
         self.images_file = images_file
@@ -147,9 +153,8 @@ class RefL4Dataset(Dataset):
             data["clip_vision"] = self.vision_features[idx]
             data["clip_text"] = self.text_features[idx]
 
-        data["labels"] = (
-            int(data["ori_category_id"].split("_")[1]) - 1
-        )  # -1 to start from 0
+        category_id = self.ref2o365.get(data["ori_category_id"], data["ori_category_id"])
+        data["labels"] = self.label2id.get(category_id, 0)
         data["bbox"] = torch.tensor(data["bbox"], dtype=torch.float32)
 
         return image, data
@@ -204,7 +209,7 @@ def get_dataloader(config):
     """
     if config.data.load_images:
         normalize = T.Compose([
-            T.Resize((224, 224)),
+            T.Resize(800),
             T.ToTensor(),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])

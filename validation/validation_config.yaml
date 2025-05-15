@@ -1,5 +1,5 @@
 ### HERE PUT THE MODEL AND CHECKPOINT YOU WISH TO EVALUATE ###
-model: adapter_detr # [org_DETR, adapter_detr]
+model: adapter_detr # [org_detr, adapter_detr]
 
 
 num_classes: 365
@@ -19,14 +19,15 @@ org_detr:
   # return_intermediate_dec: false
 
 adapter_detr:
-  _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
-  train_decoder: false
+  _target_: model_code.adapterDETR.AdapterDetr
+  train_decoder: true
+  train_class_head: true
+  train_bbox_head: true
   adapter:
-    _target_: models.adapter.Adapter    # Replace with actual module path
+    _target_: model_code.transformerAdapter.TransformerAdapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
     output_dim: 256
     seq_len: 197
-  train_prediction_heads: false
 
 train:
   batch_size: 1
