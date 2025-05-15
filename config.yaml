@@ -34,10 +34,10 @@ train:
   epochs: 30
   batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
-  org_checkpoint_dir: "./checkpoints/rq1-image-only"
-  resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
-  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
-  final_checkpoint_name: "ta-fullimage-trainall"
+  org_checkpoint_dir: "./checkpoints/org_detr"
+  final_checkpoint_name: "ta-fullimage-trainall-newdataloader"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}.pth"
+  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/${train.final_checkpoint_name}.pth"
   save_interval: 10000
   from_scratch: true
   lr: 1e-4
@@ -46,7 +46,7 @@ train:
 wandb:
   project: "full-image"
   entity: "visiblyintelligent"
-  name: "transformer-adapter-torch-hub"
+  name: "${train.final_checkpoint_name}"
 
 data:
   dataset_name: "JierunChen/Ref-L4"

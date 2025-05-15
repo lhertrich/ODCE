@@ -3,7 +3,7 @@ import wandb
 import omegaconf
 from hydra.utils import instantiate
 from detr.models.matcher import HungarianMatcher
-from detr.models.detr    import SetCriterion
+from detr.models.detr import SetCriterion
 from data.dataloader import get_dataloader
 from torch.optim.adamw import AdamW
 from transformers import get_linear_schedule_with_warmup
@@ -130,7 +130,7 @@ def main(config):
             labels = data["labels"].to(device)
             boxes = data["bbox"].to(device)            
             widths = data["width"].tolist()             
-            heights = data["height"].tolist()            
+            heights = data["height"].tolist()    
 
             # Normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
             converted_boxes = [
@@ -144,9 +144,8 @@ def main(config):
                 # If label is scalar (0-dim), convert to 1D tensor
                 if lbl.dim() == 0:
                     lbl = lbl.unsqueeze(0)
-                # If label is empty, add a default "no object" label (assuming class 0 is background)
-                #TODO check if 0 is background class
-                if lbl.numel() == 0:
+                # If label is empty, add no object label (class labels from 0-364)
+                if lbl.numel() == 365:
                     lbl = torch.tensor([0], device=lbl.device)
 
                 valid_mask = (lbl >= 0) & (lbl < config.num_classes)
@@ -227,9 +226,8 @@ def main(config):
                     # If label is scalar (0-dim), convert to 1D tensor
                     if lbl.dim() == 0:
                         lbl = lbl.unsqueeze(0)
-                    # If label is empty, add a default "no object" label (assuming class 0 is background)
-                    #TODO check if 0 is background class
-                    if lbl.numel() == 0:
+                    # If label is empty, add no object label (class labels from 0-364)
+                    if lbl.numel() == 365:
                         lbl = torch.tensor([0], device=lbl.device)
                     processed_labels.append(lbl)
 
