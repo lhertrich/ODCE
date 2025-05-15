@@ -108,9 +108,9 @@ class AdapterDetr(nn.Module):
         if not train_class_head:
             for param in self.classification_head.parameters():
                 param.requires_grad = False
-            print("DETR bbox head frozen.")
+            print("DETR class head frozen.")
         else:
-            print("DETR bbox head is trainable.")
+            print("DETR class head is trainable.")
 
         if not train_bbox_head:
             for param in self.bbox_regression_head.parameters():
