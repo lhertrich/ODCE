@@ -7,6 +7,7 @@ from detr.models.detr import SetCriterion
 from data.dataloader import get_dataloader
 from torch.optim.adamw import AdamW
 from transformers import get_linear_schedule_with_warmup
+import torch.nn.functional as F
 import hydra
 import os
 
@@ -145,8 +146,8 @@ def main(config):
                 if lbl.dim() == 0:
                     lbl = lbl.unsqueeze(0)
                 # If label is empty, add no object label (class labels from 0-364)
-                if lbl.numel() == 365:
-                    lbl = torch.tensor([0], device=lbl.device)
+                if lbl.numel() == 0:
+                    lbl = torch.tensor([365], device=lbl.device)
 
                 valid_mask = (lbl >= 0) & (lbl < config.num_classes)
                 if not valid_mask.all():
@@ -199,6 +200,7 @@ def main(config):
                 
         model.eval()
         val_loss = 0.0
+        custom_ce_loss = 0.0
         count = 0
         with torch.no_grad():
             for images, data in val_loader:
@@ -227,8 +229,8 @@ def main(config):
                     if lbl.dim() == 0:
                         lbl = lbl.unsqueeze(0)
                     # If label is empty, add no object label (class labels from 0-364)
-                    if lbl.numel() == 365:
-                        lbl = torch.tensor([0], device=lbl.device)
+                    if lbl.numel() == 0:
+                        lbl = torch.tensor([365], device=lbl.device)
                     processed_labels.append(lbl)
 
                 targets = [
@@ -247,11 +249,26 @@ def main(config):
                 val_loss += total_loss.item()
                 count    += 1
 
+                custom_loss = 0.0
+                for i, target in enumerate(targets):
+                    if target['labels'].numel() > 0:  # Skip empty targets
+                        # Get logits without last column (no-object class)
+                        logits_no_obj = outputs['pred_logits'][i, :, :-1]  # [num_queries, num_classes-1]
+                        
+                        # For each target label, find the most similar query
+                        for label in target['labels']:
+                            # Get probability of the correct class for each query
+                            label_probs = F.softmax(logits_no_obj, dim=1)[:, label]  # [num_queries]
+                            # Add negative log likelihood of the best matching query
+                            custom_loss -= torch.log(label_probs.max() + 1e-6)
+        
         avg_val_loss = val_loss / count
+        avg_custom_ce_loss = custom_ce_loss / count
         # log to wandb
         wandb.log({
             'epoch': epoch,
-            'val/loss': avg_val_loss
+            'val/loss': avg_val_loss,
+            'val/custom_ce_loss': avg_custom_ce_loss
         })
                 
     final_checkpoint = {

@@ -26,6 +26,7 @@ adapter_detr:
     output_dim: 256
     seq_len: 197
 
+
 optimizer:
   _target_: torch.optim.AdamW
   lr: 0.001
@@ -35,9 +36,9 @@ train:
   batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
   org_checkpoint_dir: "./checkpoints/org_detr"
-  final_checkpoint_name: "ta-fullimage-trainall-newdataloader"
-  resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}.pth"
-  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/${train.final_checkpoint_name}.pth"
+  final_checkpoint_name: "ta-fullimage-trainall-newclassloss.pth"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}"
+  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/${train.final_checkpoint_name}"
   save_interval: 10000
   from_scratch: true
   lr: 1e-4
