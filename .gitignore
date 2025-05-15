@@ -9,3 +9,6 @@ wandb/
 outputs/
 clip_features/features
 logs/
+data/full-longclip-emb/
+.ipynb_checkpoints/
+validation/.ipynb_checkpoints
