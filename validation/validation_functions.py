@@ -107,7 +107,7 @@ def eval_model(
                 inputs = data['clip_vision'].to(device)
             raw_logits, raw_pred_boxes = model(inputs)
                 
-            pred_boxes = raw_pred_boxes.sigmoid()
+            pred_boxes = raw_pred_boxes
             labels = data["labels"].to(device)
             boxes   = data["bbox"].to(device)            # shape (B,4)
             widths  = data["width"].tolist()             # [w1, w2, …]
@@ -351,7 +351,7 @@ def show_image_prediction(
                 pred_scores = raw_logits.softmax(-1)[0]  # [num_queries, num_classes]
                 pred_labels = pred_scores.argmax(-1)     # [num_queries]
                 pred_confs = pred_scores.max(-1).values  # [num_queries]
-                pred_boxes = raw_pred_boxes.sigmoid()[0]  # [num_queries, 4] in cxcywh              
+                pred_boxes = raw_pred_boxes[0]  # [num_queries, 4] in cxcywh              
                 pred_boxes_xyxy = cxcywh_to_xyxy(pred_boxes) * torch.tensor([width, height, width, height], device=device)
 
 
