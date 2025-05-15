@@ -2,7 +2,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 data/longclip-emb/
-clip_features/Long_CLIP
+# clip_features/Long_CLIP
 checkpoints/
 detr/
 wandb/
