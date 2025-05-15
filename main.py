@@ -60,11 +60,11 @@ def main(config):
     device = torch.device(config.device)
 
     # Init model
-    if config.model=='orgDETR':
+    if config.model=='org_detr':
         model = instantiate(config.org_detr)
         checkpoint_dir = config.train.org_checkpoint_dir
         resume_checkpoint_dir = config.train.org_resume_checkpoint_dir
-    elif config.model=='adapterDETR':  
+    elif config.model=='adapter_detr':  
         model = instantiate(config.adapter_detr)
         checkpoint_dir = config.train.checkpoint_dir
         resume_checkpoint_dir = config.train.resume_checkpoint_dir
@@ -74,7 +74,7 @@ def main(config):
     
     # Init optimizer
     optimizer = AdamW(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
-    last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
+    last_checkpoint_path = os.path.join(checkpoint_dir, config.train.final_checkpoint_name)
     resume_from_scratch = config.train.from_scratch
 
     if os.path.exists(resume_checkpoint_dir) and not resume_from_scratch:

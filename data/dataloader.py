@@ -1,25 +1,17 @@
-from torch.utils.data import Dataset
-from PIL import Image
-import tarfile
-import io
-from tqdm import tqdm
 import torch
-import datasets
 from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
-import torch
 from torch.utils.data import Dataset
-from pathlib import Path
-import torch
-from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor
-from pathlib import Path
-import tarfile
+
 from PIL import Image
+import tarfile
 import io
-from tqdm import tqdm
 import datasets
+
+from tqdm import tqdm
+from pathlib import Path
+import io
 import logging
 from huggingface_hub import hf_hub_download
 logging.basicConfig(level=logging.INFO)
@@ -203,7 +195,7 @@ def get_dataloader(config):
         dataloader: DataLoader for the dataset
     """
     if config.data.load_images:
-        normalize = transform = T.Compose([
+        normalize = T.Compose([
             T.Resize(800),
             T.ToTensor(),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])

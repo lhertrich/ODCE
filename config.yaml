@@ -1,6 +1,6 @@
 num_classes: 365
 device: "cuda"  # or "cpu" depending on your setup
-model: adapterDETR # [orgDETR, adapterDETR]
+model: adapter_detr # [org_detr, adapter_detr]
 
 org_detr:
   _target_: model_code.orgDETR.Detr  # Replace with actual module path
@@ -37,6 +37,7 @@ train:
   org_checkpoint_dir: "./checkpoints/rq1-image-only"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
+  final_checkpoint_name: "ta-fullimage-trainall"
   save_interval: 10000
   from_scratch: true
   lr: 1e-4
