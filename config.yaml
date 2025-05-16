@@ -45,12 +45,13 @@ train:
   weight_decay: 1e-4
   warmup_steps: 500
 wandb:
-  project: "full-image"
+  project: "huyen-new-dataloader"
   entity: "visiblyintelligent"
   name: "${train.final_checkpoint_name}"
 
 data:
-  dataset_name: "JierunChen/Ref-L4"
+  # dataset_name: "JierunChen/Ref-L4"
+  dataset_path: "./dataset/refl4"
   feature_path: "./data/full-longclip-emb"
   batch_size: 32
   shuffle: true
