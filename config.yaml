@@ -55,7 +55,6 @@ data:
   feature_path: "./data/full-longclip-emb"
   batch_size: 32
   shuffle: true
-  split: "val"
   load_images: false
   load_features: true
-  num_workers: 1
+  num_workers: 4
