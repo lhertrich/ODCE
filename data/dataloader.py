@@ -58,6 +58,7 @@ class RefL4Dataset(Dataset):
 
     def _load_dataset(self):
         self.dataset_df = pd.read_parquet(f"{self.dataset_path}/{self.split}.parquet")
+        print(f"Loaded {len(self.dataset_df)} samples from {self.split} split")
 
     def _load_clip_features(self):
         if self.feature_dir is not None:
@@ -108,7 +109,7 @@ class RefL4Dataset(Dataset):
         return image, output
 
 
-def get_dataloader(config):
+def get_dataloader(config, split):
     if config.data.load_images:
         normalize = T.Compose(
             [
@@ -122,7 +123,7 @@ def get_dataloader(config):
 
     dataset = RefL4Dataset(
         dataset_path=config.data.dataset_path,
-        split=config.data.split,
+        split=split,
         transforms=normalize,
         load_images=config.data.load_images,
         load_features=config.data.load_features,
