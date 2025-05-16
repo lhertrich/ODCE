@@ -33,20 +33,20 @@ def convert_boxes(boxes, image_size=None):
 
 def get_loss_fn(config):
     # 1. Initialize the matcher
-    matcher = HungarianMatcher(cost_class=1.0, cost_bbox=5.0, cost_giou=2.0)
+    matcher = HungarianMatcher(cost_class=5.0, cost_bbox=5.0, cost_giou=2.0)
 
     weight_dict = {
-        "loss_ce": 1.0,  # classification
+        "loss_ce": 5.0,  # classification
         "loss_bbox": 5.0,  # L1
         "loss_giou": 2.0,  # GIoU
     }
-    eos_coef = 0.1  # weight for no-object class
+    eos_coef = 0.01  # weight for no-object class
     criterion = SetCriterion(
         num_classes=config.num_classes,  # +1,
         matcher=matcher,
         weight_dict=weight_dict,
         eos_coef=eos_coef,
-        losses=["labels", "boxes"],
+        losses=["labels", "boxes", "cardinality"],
     )
     return criterion, weight_dict
 
@@ -132,6 +132,7 @@ def main(config):
     # Training loop
     for epoch in range(start_epoch, config.train.epochs):
         for images, data in train_loader:
+            
             if config.data.load_images:
                 inputs = images.to(device)
                 raw_logits, raw_pred_boxes = model.forward(inputs)
@@ -156,16 +157,16 @@ def main(config):
                 if lbl.dim() == 0:
                     lbl = lbl.unsqueeze(0)
                 # If label is empty, add no object label (class labels from 0-364)
-                if lbl.numel() == 0:
-                    lbl = torch.tensor([365], device=lbl.device)
+                # if lbl.numel() == 0:
+                #     lbl = torch.tensor([365], device=lbl.device)
 
-                valid_mask = (lbl >= 0) & (lbl < config.num_classes)
-                if not valid_mask.all():
-                    print(
-                        f"WARNING: Found invalid label(s): {lbl[~valid_mask].tolist()}"
-                    )
-                    # Replace invalid labels with 0 (background)
-                    lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
+                # valid_mask = (lbl >= 0) & (lbl < config.num_classes)
+                # if not valid_mask.all():
+                #     print(
+                #         f"WARNING: Found invalid label(s): {lbl[~valid_mask].tolist()}"
+                #     )
+                #     # Replace invalid labels with 0 (background)
+                #     lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
                 processed_labels.append(lbl)
 
             targets = [
@@ -175,6 +176,16 @@ def main(config):
                 }  # (n_obj,4), now in cxcywh normalized coords
                 for lbl, box in zip(processed_labels, converted_boxes)
             ]
+
+            # DEBUGGING
+            # pred_classes = raw_logits.argmax(-1)  # [B, num_queries], ints in [0..num_classes]
+            # gt_classes   = [t["labels"] for t in targets]  # list of length B
+
+            # for j in range(len(gt_classes)):
+            #     # take only the first e.g. 10 query slots so prints don’t explode
+            #     pc = pred_classes[j, :10].tolist()
+            #     gc = gt_classes[j].tolist()
+            #     print(f"Step {i}Sample {j}  PRED>> {pc}  |  GT>> {gc}")
 
             outputs = {
                 "pred_logits": raw_logits,
@@ -252,9 +263,9 @@ def main(config):
                     # If label is scalar (0-dim), convert to 1D tensor
                     if lbl.dim() == 0:
                         lbl = lbl.unsqueeze(0)
-                    # If label is empty, add no object label (class labels from 0-364)
-                    if lbl.numel() == 0:
-                        lbl = torch.tensor([365], device=lbl.device)
+                    # # If label is empty, add no object label (class labels from 0-364)
+                    # if lbl.numel() == 0:
+                    #     lbl = torch.tensor([365], device=lbl.device)
                     processed_labels.append(lbl)
 
                 targets = [
