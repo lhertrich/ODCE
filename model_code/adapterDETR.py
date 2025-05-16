@@ -44,12 +44,14 @@ class AdapterDetr(nn.Module):
         train_decoder: bool = True,  
         train_class_head: bool = True,  
         train_bbox_head: bool = True,
+        num_queries: int = 100,
         encoder: nn.Module = None,
     ):
 
         super().__init__()
         self.adapter = adapter
         self.encoder = encoder
+        self.num_queries = num_queries
 
         print(f"Loading model and processor from {repo_dir}...")
         self.detr_full_model = torch.hub.load(repo_dir, model_name, pretrained=True)
@@ -71,6 +73,8 @@ class AdapterDetr(nn.Module):
         # Get decoder out of DETR model
         self.decoder = self.detr_full_model.transformer.decoder
 
+        self.decoder.auxiliary_loss = True
+
         # Initialize new prediction head
         num_user_labels = 365
         num_model_classes = num_user_labels + 1
@@ -86,8 +90,13 @@ class AdapterDetr(nn.Module):
         # Learnable object query positional embeddings (part of DETR)
         # NB! don't understand
         self.query_pos_embed_weight = self.detr_full_model.query_embed.weight
-        self.num_queries = self.query_pos_embed_weight.shape[0]
+        #self.num_queries = self.query_pos_embed_weight.shape[0]
         self.hidden_dim = self.query_pos_embed_weight.shape[1]
+        self.query_embed = nn.Embedding(self.num_queries, hidden_dim)
+        nn.init.normal_(self.query_embed.weight, std=0.02)
+        self.detr_full_model.query_embed = self.query_embed
+        self.query_pos_embed_weight = self.query_embed.weight
+
 
         # classification and bbox heads out of DETR
         # self.classification_head = self.detr_full_model.class_labels_classifier
