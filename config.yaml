@@ -24,6 +24,7 @@ adapter_detr:
   train_decoder: true
   train_class_head: true
   train_bbox_head: true
+  num_queries: 5
   adapter:
     _target_: model_code.transformerAdapter.TransformerAdapter
     input_dim: 512

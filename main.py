@@ -37,21 +37,20 @@ def convert_boxes(boxes, image_size=None):
 
 def get_loss_fn(config):
     # 1. Initialize the matcher
-    matcher = HungarianMatcher(cost_class=1.0, cost_bbox=5.0, cost_giou=2.0)
+    matcher = HungarianMatcher(cost_class=5.0, cost_bbox=5.0, cost_giou=2.0)
 
     weight_dict = {
-        "loss_ce": 1.0,  # classification
+        "loss_ce": 5.0,  # classification
         "loss_bbox": 5.0,  # L1
         "loss_giou": 2.0,  # GIoU
     }
-    eos_coef = 0.1
-    # Adjust num_classes to match model output (365 total classes including background)
+    eos_coef = 0.01  # weight for no-object class
     criterion = SetCriterion(
         num_classes=364,  # Set to output_classes - 1 (365-1)
         matcher=matcher,
         weight_dict=weight_dict,
-        eos_coef=eos_coef,  # weight for no-object class
-        losses=["labels", "boxes"],
+        eos_coef=eos_coef,
+        losses=["labels", "boxes", "cardinality"],
     )
     
     
