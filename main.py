@@ -3,8 +3,11 @@ import wandb
 import omegaconf
 from hydra.utils import instantiate
 from detr.models.matcher import HungarianMatcher
-from detr.models.detr    import SetCriterion
+from detr.models.detr import SetCriterion
 from data.dataloader import get_dataloader
+from torch.optim.adamw import AdamW
+from transformers import get_linear_schedule_with_warmup
+import torch.nn.functional as F
 import hydra
 import os
 import pytorch_lightning as pl
@@ -39,7 +42,7 @@ def convert_boxes_to_cxcywh(boxes, image_size):
 def convert_boxes(boxes, image_size=None):
     if boxes.dim() == 1:
         boxes = boxes.unsqueeze(0)
-    
+
     if image_size is not None:
         width, height = image_size
         boxes = boxes.clone()
@@ -54,26 +57,23 @@ def convert_boxes(boxes, image_size=None):
 
     return torch.stack([cx, cy, boxes[:, 2], boxes[:, 3]], dim=1)
 
+
 def get_loss_fn(config):
     # 1. Initialize the matcher
-    matcher = HungarianMatcher(
-    cost_class=1.0,
-    cost_bbox=5.0,
-    cost_giou=2.0
-    )
+    matcher = HungarianMatcher(cost_class=1.0, cost_bbox=5.0, cost_giou=2.0)
 
     weight_dict = {
-        'loss_ce':   1.0,   # classification
-        'loss_bbox': 5.0,   # L1
-        'loss_giou': 2.0,   # GIoU
+        "loss_ce": 1.0,  # classification
+        "loss_bbox": 5.0,  # L1
+        "loss_giou": 2.0,  # GIoU
     }
     eos_coef = 0.1  # weight for no-object class
     criterion = SetCriterion(
-        num_classes=config.num_classes, #+1,
+        num_classes=config.num_classes,  # +1,
         matcher=matcher,
         weight_dict=weight_dict,
         eos_coef=eos_coef,
-        losses=['labels','boxes']
+        losses=["labels", "boxes"],
     )
     return criterion, weight_dict
 
@@ -191,6 +191,7 @@ def main(config):
     # Start training
     trainer.fit(pl_model, train_loader, val_loader, ckpt_path=resume_checkpoint)
     wandb.finish()
+
 
 if __name__ == "__main__":
     main()

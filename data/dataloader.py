@@ -1,12 +1,11 @@
-from torch.utils.data import Dataset
+from pathlib import Path
+import json
+import os
+from torch.utils.data import Dataset, DataLoader
+import pandas as pd
 from PIL import Image
-import tarfile
-import io
-from tqdm import tqdm
 import torch
-import datasets
 from torchvision.transforms import ToTensor
-from torch.utils.data import DataLoader
 from torchvision import transforms as T
 import torch
 from torch.utils.data import Dataset
@@ -45,8 +44,7 @@ class RefL4Dataset(Dataset):
         self,
         dataset_path,
         split,
-        images_file="images.tar.gz",
-        custom_transforms=None,
+        transforms=None,
         load_images=False,
         load_features=True,
         feature_dir=None,
@@ -56,8 +54,7 @@ class RefL4Dataset(Dataset):
         assert split in ["val", "test", "all"], "split should be val, test, or all"
         self.dataset_path = dataset_path
         self.split = split
-        self.images_file = images_file
-        self.transforms = custom_transforms
+        self.transforms = transforms
         self.feature_dir = Path(feature_dir) if feature_dir else None
         self.load_images = load_images
         self.load_features = load_features
@@ -72,9 +69,6 @@ class RefL4Dataset(Dataset):
             assert (
                 self.vision_features is not None and self.text_features is not None
             ), "CLIP features not found in specified directory"
-
-    def __len__(self):
-        return len(self.dataset[self.split])
 
     def _load_dataset(self):
         self.dataset = datasets.load_dataset(self.dataset_path)
@@ -171,17 +165,20 @@ def get_dataloader(config):
         tuple: train_loader, val_loader (if split), otherwise just the single dataloader
     """
     if config.data.load_images:
-        normalize = T.Compose([
-            T.Resize((224, 224)),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
+        normalize = T.Compose(
+            [
+                T.Resize(800),
+                T.ToTensor(),
+                T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
+        )
     else:
         normalize = None
 
     dataset = RefL4Dataset(
-        dataset_path=config.data.dataset_name,
-        split=config.data.split,
+        dataset_path=config.data.dataset_path,
+        split=split,
+        transforms=normalize,
         load_images=config.data.load_images,
         load_features=config.data.load_features,
         feature_dir=config.data.feature_path,
@@ -209,19 +206,24 @@ def get_dataloader(config):
     #     return dataloader
 
 if __name__ == "__main__":
-    # How to use
-    feature_path = "./data/longclip-emb"  # Same path used in get_clip_features()
-    dataloader = get_dataloader(
-        dataset_name="JierunChen/Ref-L4", feature_path=feature_path
+    normalize = T.Compose(
+        [
+            T.Resize((224, 224)),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+    dataset = RefL4Dataset(
+        dataset_path="./dataset/refl4",
+        split="val",
+        transforms=normalize,
+        load_images=True,
+        load_features=False,
+        feature_dir=None,
     )
 
-    labels = set()
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-    # Iterate through batches, note that example (image, data)
-    for images, data in dataloader:
-        vision_features = data["clip_vision"]
-        text_features = data["clip_text"]
-
-        labels.update(data["labels"].tolist())
-
-    print("Num unique labels:", len(labels))
+    for batch in dataloader:
+        print(batch)
+        break

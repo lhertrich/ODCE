@@ -42,7 +42,7 @@ train:
   val_check_interval: 1000
 
 wandb:
-  project: "huyen-new-dataloader"
+  project: "train-detr"
   entity: "visiblyintelligent"
   name: "${train.final_checkpoint_name}"
 
