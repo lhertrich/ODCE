@@ -15,14 +15,16 @@ org_detr:
   # return_intermediate_dec: false
 
 adapter_detr:
-  _target_: models.adapterDETR.AdapterDetr  # Replace with actual module path
+  _target_: model_code.adapterDETR.AdapterDetr
   train_decoder: true
+  train_class_head: true
+  train_bbox_head: true
   adapter:
-    _target_: models.adapter.Adapter    # Replace with actual module path
+    _target_: model_code.transformerAdapter.TransformerAdapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
     output_dim: 256
-    seq_len: 1
-  train_prediction_heads: true
+    seq_len: 197
+
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -40,16 +42,15 @@ train:
   val_check_interval: 1000
 
 wandb:
-  project: "full-image"
+  project: "huyen-new-dataloader"
   entity: "visiblyintelligent"
-  name: "back-bone-freeze"
+  name: "${train.final_checkpoint_name}"
 
 data: 
   dataset_name: "JierunChen/Ref-L4"
   feature_path: "./data/longclip-emb"
   batch_size: 32
   shuffle: true
-  split: "all"
-  load_images: true
-  load_features: false
-  num_workers: 1
+  load_images: false
+  load_features: true
+  num_workers: 4
