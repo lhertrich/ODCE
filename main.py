@@ -33,14 +33,14 @@ def convert_boxes(boxes, image_size=None):
 
 def get_loss_fn(config):
     # 1. Initialize the matcher
-    matcher = HungarianMatcher(cost_class=5.0, cost_bbox=5.0, cost_giou=2.0)
+    matcher = HungarianMatcher(cost_class=1.0, cost_bbox=5.0, cost_giou=2.0)
 
     weight_dict = {
-        "loss_ce": 5.0,  # classification
+        "loss_ce": 1.0,  # classification
         "loss_bbox": 5.0,  # L1
         "loss_giou": 2.0,  # GIoU
     }
-    eos_coef = 0.01  # weight for no-object class
+    eos_coef = 0.1  # weight for no-object class
     criterion = SetCriterion(
         num_classes=config.num_classes,  # +1,
         matcher=matcher,
