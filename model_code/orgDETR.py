@@ -51,15 +51,12 @@ class Detr(nn.Module):
         else:
             print("DETR prediction heads are trainable.")
 
-        print("AdapterDetrModel initialized.")
+        print("Original DETR initialized.")
 
     def forward(
         self,
         input: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        # If the input is given before encoding, encode it
-    
         decoder_outputs = self.detr_model(input)
 
         last_hidden_state = (

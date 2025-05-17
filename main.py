@@ -3,39 +3,23 @@ import wandb
 import omegaconf
 from hydra.utils import instantiate
 from detr.models.matcher import HungarianMatcher
-from detr.models.detr    import SetCriterion
+from detr.models.detr import SetCriterion
 from data.dataloader import get_dataloader
+from torch.optim.adamw import AdamW
+from transformers import get_linear_schedule_with_warmup
+import torch.nn.functional as F
 import hydra
 import os
+import pytorch_lightning as pl
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.loggers import WandbLogger
 
-def convert_boxes_to_cxcywh(boxes, image_size):
-    """
-    boxes: Tensor[N,4] in (x_min, y_min, x_max, y_max), absolute pixels
-    image_size: (width, height)
-    returns: Tensor[N,4] in (cx, cy, w, h), normalized to [0,1]
-    """
-    if boxes.dim() == 1:
-        boxes = boxes.unsqueeze(0)
-
-    width, height = image_size
-    x_min, y_min, x_max, y_max = boxes.unbind(1)
-    w = x_max - x_min
-    h = y_max - y_min
-    cx = x_min + 0.5 * w
-    cy = y_min + 0.5 * h
-
-    # normalize
-    cx = cx / width
-    cy = cy / height
-    w  = w  / width
-    h  = h  / height
-
-    return torch.stack([cx, cy, w, h], dim=1)
 
 def convert_boxes(boxes, image_size=None):
     if boxes.dim() == 1:
         boxes = boxes.unsqueeze(0)
-    
+
     if image_size is not None:
         width, height = image_size
         boxes = boxes.clone()
@@ -50,213 +34,265 @@ def convert_boxes(boxes, image_size=None):
 
     return torch.stack([cx, cy, boxes[:, 2], boxes[:, 3]], dim=1)
 
+
 def get_loss_fn(config):
     # 1. Initialize the matcher
-    matcher = HungarianMatcher(
-    cost_class=1.0,
-    cost_bbox=5.0,
-    cost_giou=2.0
-    )
+    matcher = HungarianMatcher(cost_class=1.0, cost_bbox=5.0, cost_giou=2.0)
 
     weight_dict = {
-        'loss_ce':   1.0,   # classification
-        'loss_bbox': 5.0,   # L1
-        'loss_giou': 2.0,   # GIoU
+        "loss_ce": 1.0,  # classification
+        "loss_bbox": 5.0,  # L1
+        "loss_giou": 2.0,  # GIoU
     }
-    eos_coef = 0.1  # weight for no-object class
+    eos_coef = 0.1
+    # Adjust num_classes to match model output (365 total classes including background)
     criterion = SetCriterion(
-        num_classes=config.num_classes, #+1,
+        num_classes=364,  # Set to output_classes - 1 (365-1)
         matcher=matcher,
         weight_dict=weight_dict,
-        eos_coef=eos_coef,
-        losses=['labels','boxes']
+        eos_coef=eos_coef,  # weight for no-object class
+        losses=["labels", "boxes"],
     )
+    
+    
     return criterion, weight_dict
+
+class DetectionModel(pl.LightningModule):
+    def __init__(self, model, criterion, weight_dict, config):
+        super().__init__()
+        self.model = model
+        self.criterion = criterion
+        self.weight_dict = weight_dict
+        self.config = config
+        self.save_hyperparameters(ignore=['model', 'criterion'])
+
+    def forward(self, x):
+        return self.model(x)
+
+    def process_batch(self, batch):
+        images, data = batch
+        if self.config.data.load_images:
+            inputs = images.to(self.device)
+            raw_logits, raw_pred_boxes = self.forward(inputs)
+        else:
+            inputs = data['clip_vision'].to(self.device)
+            raw_logits, raw_pred_boxes = self.forward(inputs)
+        labels = data["labels"].to(self.device)
+        boxes = data["bbox"].to(self.device)
+        widths = data["width"].tolist()
+        heights = data["height"].tolist()
+
+        # Normalize & convert boxes
+        converted_boxes = [
+            convert_boxes(box, (w, h)) 
+            for box, w, h in zip(boxes.unbind(0), widths, heights)
+        ]
+
+        processed_labels = []
+        for i, lbl in enumerate(labels.unbind(0)):
+            # If label is scalar (0-dim), convert to 1D tensor
+            if lbl.dim() == 0:
+                lbl = lbl.unsqueeze(0)
+            # If label is empty, add no object label
+            # if lbl.numel() == 0:
+            #     lbl = torch.tensor([365], device=lbl.device)
+            # else:
+            #     # Check for valid labels only if we have labels
+            #     valid_mask = (lbl >= 0) & (lbl < self.config.num_classes)
+            #     if not valid_mask.all():
+            #         print(f"WARNING: Found invalid label(s) in batch {i}: {lbl[~valid_mask].tolist()}")
+            #         # Replace invalid labels with 0 (background)
+            #         lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
+            
+            processed_labels.append(lbl)
+
+        targets = [
+            {"labels": lbl, "boxes": box}
+            for lbl, box in zip(processed_labels, converted_boxes)
+        ]
+
+        outputs = {
+            "pred_logits": raw_logits,
+            "pred_boxes": raw_pred_boxes.sigmoid()
+        }
+
+        return outputs, targets
+
+    def training_step(self, batch, batch_idx):
+        outputs, targets = self.process_batch(batch)
+        
+        loss_dict = self.criterion(outputs, targets)
+        weighted_loss_dict = {
+            k: loss_dict[k] * self.weight_dict[k]
+            for k in loss_dict.keys()
+            if k in self.weight_dict
+        }
+        total_loss = sum(weighted_loss_dict.values())
+
+        # Log losses
+        self.log("train/total_loss", total_loss, on_step=True, on_epoch=True)
+        for k, v in loss_dict.items():
+            self.log(f"train/{k}", v, on_step=True, on_epoch=True)
+
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        outputs, targets = self.process_batch(batch)
+        loss_dict = self.criterion(outputs, targets)
+        weighted_loss_dict = {
+            k: loss_dict[k] * self.weight_dict[k]
+            for k in loss_dict.keys()
+            if k in self.weight_dict
+        }
+        total_loss = sum(weighted_loss_dict.values())
+
+        # Calculate custom CE loss (excluding no-object class)
+        custom_loss = torch.tensor(0.0, device=self.device)
+        for i, target in enumerate(targets):
+            if target["labels"].numel() > 0:  # Skip empty targets
+                # Get logits without last column (no-object class)
+                logits_no_obj = outputs["pred_logits"][
+                    i, :, :-1
+                ]  # [num_queries, num_classes-1]
+
+                # For each target label, find the most similar query
+                for label in target["labels"]:
+                    # Get probability of the correct class for each query
+                    label_probs = F.softmax(logits_no_obj, dim=1)[
+                        :, label
+                    ]  # [num_queries]
+                    # Add negative log likelihood of the best matching query
+                    custom_loss -= torch.log(label_probs.max() + 1e-6)
+
+        # Log all losses
+        self.log("val/total_loss", total_loss, on_epoch=True)
+        self.log("val/custom_loss", custom_loss, on_epoch=True)
+        for k, v in loss_dict.items():
+            self.log(f"val/{k}", v, on_epoch=True)
+
+        return total_loss
+
+    def configure_optimizers(self):
+        optimizer = AdamW(
+            self.parameters(),
+            lr=self.config.train.lr,
+            weight_decay=self.config.train.weight_decay
+        )
+
+        num_training_steps = self.config.train.max_train_steps
+        num_warmup_steps = self.config.train.warmup_steps
+
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps
+        )
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step"
+            }
+        }
+
+def custom_collate_fn(batch):
+    """Custom collate function to handle variable sized data"""
+    images = []
+    data = {
+        'labels': [],
+        'bbox': [],
+        'width': [],
+        'height': [],
+        'clip_vision': []
+    }
+    
+    for img, d in batch:
+        if img is not None:
+            images.append(img)
+        for key in data:
+            if key in d:
+                data[key].append(d[key])
+    
+    # Stack images if they exist
+    if images:
+        images = torch.stack(images)
+    
+    # Process each field
+    if data['clip_vision']:
+        data['clip_vision'] = torch.stack(data['clip_vision'])
+    data['width'] = data['width']  # Keep as list
+    data['height'] = data['height']  # Keep as list
+    # Don't stack labels and bbox as they might have different sizes
+    
+    return images, data
 
 @hydra.main(version_base=None, config_path='',
             config_name='config')
 def main(config):
-    wandb.init(**config.wandb, config=omegaconf.OmegaConf.to_container(config))
-    global_step = 0
-    device = torch.device(config.device)
-    checkpoint_dir = config.train.checkpoint_dir  
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    if config.model=='orgDETR':
+    # Initialize wandb logger
+    wandb_logger = WandbLogger(
+        project=config.wandb.project,
+        entity=config.wandb.entity,
+        name=config.wandb.name,
+        config=omegaconf.OmegaConf.to_container(config, resolve=True)
+    )
+    
+    # Initialize model
+    if config.model == 'orgDETR':
         model = instantiate(config.org_detr)
-    elif config.model=='adapterDETR':  
+        checkpoint_dir = config.train.checkpoint_dir
+    elif config.model == 'adapterDETR':
         model = instantiate(config.adapter_detr)
+        checkpoint_dir = config.train.checkpoint_dir
     else:
         raise ValueError(f"Unknown model type: {config.model}")
-    
-    optimizer = instantiate(config.optimizer, params=model.parameters())
-    last_checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_last.pth")
-    
-    if os.path.exists(config.train.resume_checkpoint_dir):
-        checkpoint = torch.load(config.train.resume_checkpoint_dir, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1  # Resume from next epoch
-        global_step = checkpoint['global_step']
-        print(f"\nResumed training from {config.train.resume_checkpoint_dir} (epoch {checkpoint['epoch']}, step {global_step})")
-    else: 
-        start_epoch = 0
-        print("No checkpoint found, starting from scratch.")
-    
-    model.to(device)
-    full_ds, _ = get_dataloader(config)    
-    n_total = len(full_ds)
-    n_train = int(n_total * 0.9)
-    n_val = n_total - n_train
-    print('Full dataset length:', n_total, 'Train dataset length:', n_train, 'Validation dataset length:', n_val)
-    train_ds, val_ds = torch.utils.data.random_split(full_ds, [n_train, n_val], generator=torch.Generator().manual_seed(42))
-    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True)
-    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False)
+
+    # Create checkpoint directory
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # Prepare data and components
+    _, train_loader = get_dataloader(config, split="train" )
+    _, val_loader = get_dataloader(config, split="val")
     
     criterion, weight_dict = get_loss_fn(config)
-    criterion = criterion.to(device)
-    
-    print("Training started")
-    model.train()
-    for epoch in range(start_epoch, config.train.epochs): 
-        for images, data in train_loader:
-            if config.data.load_images:
-                inputs = images.to(device)
-                raw_logits, raw_pred_boxes = model.forward(inputs)
-            else:
-                inputs = data['clip_vision'].to(device)
-                raw_logits, raw_pred_boxes = model.forward(inputs.unsqueeze(1))
-            
-            labels = data["labels"].to(device)
-            boxes   = data["bbox"].to(device)            # shape (B,4)
-            widths  = data["width"].tolist()             # [w1, w2, …]
-            heights = data["height"].tolist()            # [h1, h2, …]
+    pl_model = DetectionModel(model, criterion, weight_dict, config)
 
-            # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
-            converted_boxes = [
-                convert_boxes(box, (w, h)) 
-                for box, w, h in zip(boxes.unbind(0), widths, heights)
-            ]
+    # Configure checkpointing
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="{epoch}-{step}-{val/total_loss:.2f}",
+        monitor="val/total_loss",
+        save_top_k=3,
+        mode="min",
+        every_n_train_steps=config.train.save_interval,
+    )
 
-            processed_labels = []
-            for lbl in labels.unbind(0):
-                # If label is scalar (0-dim), convert to 1D tensor
-                if lbl.dim() == 0:
-                    lbl = lbl.unsqueeze(0)
-                # If label is empty, add a default "no object" label (assuming class 0 is background)
-                #TODO check if 0 is background class
-                if lbl.numel() == 0:
-                    lbl = torch.tensor([0], device=lbl.device)
-                processed_labels.append(lbl)
+    # Configure learning rate monitoring
+    lr_monitor = LearningRateMonitor(logging_interval='step')
 
+    # Check for resume checkpoint
+    resume_checkpoint = None
+    if os.path.exists(config.train.resume_checkpoint_dir):
+        resume_checkpoint = config.train.resume_checkpoint_dir
+        print(f"Resuming from checkpoint: {resume_checkpoint}")
 
-            targets = [
-            {"labels": lbl,    # (n_obj,)
-                "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
-            for lbl, box in zip(processed_labels, converted_boxes)
-            ]
- 
-            outputs = {
-                "pred_logits": raw_logits,
-                "pred_boxes": raw_pred_boxes.sigmoid()
-            }
+    # Initialize trainer
+    trainer = Trainer(
+        default_root_dir=checkpoint_dir,
+        max_epochs=config.train.epochs,
+        logger=wandb_logger,
+        callbacks=[checkpoint_callback, lr_monitor],
+        enable_checkpointing=True,
+        accelerator="auto",
+        devices=config.train.num_devices,
+        log_every_n_steps=10,
+    )
 
-            loss_dict = criterion(outputs, targets)
-            weighted_loss_dict = {k: loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict}
-            total_loss = sum(weighted_loss_dict.values())
-            
-            optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
-
-            # Log both total and individual losses
-            log_dict = {f"loss/{k}": v.item() for k, v in loss_dict.items()}
-            # print(global_step, log_dict)
-            log_dict.update({
-                "epoch": epoch,
-                "loss/total": total_loss.item(),
-                "learning_rate": optimizer.param_groups[0]['lr']
-            })
-            wandb.log(log_dict)
-            
-    #         global_step += 1
-    #         if global_step % config.train.save_interval == 0:
-    #             checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_step_{global_step}.pth")
-    #             torch.save({
-    #                 'global_step': global_step,
-    #                 'epoch': epoch,
-    #                 'model_state_dict': model.state_dict(),
-    #                 'optimizer_state_dict': optimizer.state_dict(),
-    #                 'loss': total_loss.item(),
-    #                 }, checkpoint_path)
-                
-    #     model.eval()
-    #     val_loss = 0.0
-    #     count = 0
-    #     with torch.no_grad():
-    #         for images, data in val_loader:
-    #             if config.data.load_images:
-    #                 inputs = images.to(device)
-    #                 raw_logits, raw_pred_boxes = model.forward(inputs)
-    #             else:
-    #                 inputs = data['clip_vision'].to(device)
-    #                 raw_logits, raw_pred_boxes = model(inputs.unsqueeze(1))
-                    
-    #             pred_boxes = raw_pred_boxes.sigmoid()
-    #             labels = data["labels"].to(device)
-    #             boxes   = data["bbox"].to(device)            # shape (B,4)
-    #             widths  = data["width"].tolist()             # [w1, w2, …]
-    #             heights = data["height"].tolist()            # [h1, h2, …]
-
-    #             # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
-    #             converted_boxes = [
-    #                 convert_boxes(box, (w, h)) 
-    #                 for box, w, h in zip(boxes.unbind(0), widths, heights)
-    #             ]
-
-    #             processed_labels = []
-    #             for lbl in labels.unbind(0):
-    #                 # If label is scalar (0-dim), convert to 1D tensor
-    #                 if lbl.dim() == 0:
-    #                     lbl = lbl.unsqueeze(0)
-    #                 # If label is empty, add a default "no object" label (assuming class 0 is background)
-    #                 #TODO check if 0 is background class
-    #                 if lbl.numel() == 0:
-    #                     lbl = torch.tensor([0], device=lbl.device)
-    #                 processed_labels.append(lbl)
-
-    #             targets = [
-    #                 {"labels": lbl,    # (n_obj,)
-    #                 "boxes":  box}   # (n_obj,4), now in cxcywh normalized coords
-    #                 for lbl, box in zip(processed_labels, converted_boxes)
-    #             ]
-
-    #             outputs = {
-    #                 "pred_logits": raw_logits,
-    #                 "pred_boxes":  pred_boxes
-    #             }
-    #             loss_dict = criterion(outputs, targets)
-    #             weighted_loss_dict = {k: loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict}
-    #             total_loss = sum(weighted_loss_dict.values())
-    #             val_loss += total_loss.item()
-    #             count    += 1
-
-    #     avg_val_loss = val_loss / count
-    #     # log to wandb
-    #     wandb.log({
-    #         'epoch': epoch,
-    #         'val/loss': avg_val_loss
-    #     })
-                
-    # final_checkpoint = {
-    #     'global_step': global_step,
-    #     'epoch': config.train.epochs - 1,
-    #     'model_state_dict': model.state_dict(),
-    #     'optimizer_state_dict': optimizer.state_dict(),
-    #     'loss': total_loss.item(),
-    #     }
-    # torch.save(final_checkpoint, last_checkpoint_path)
-
+    # Start training
+    trainer.fit(pl_model, train_loader, val_loader, ckpt_path=resume_checkpoint)
     wandb.finish()
+
 
 if __name__ == "__main__":
     main()
