@@ -44,14 +44,17 @@ def get_loss_fn(config):
         "loss_bbox": 5.0,  # L1
         "loss_giou": 2.0,  # GIoU
     }
-    eos_coef = 0.1  # weight for no-object class
+    eos_coef = 0.1
+    # Adjust num_classes to match model output (365 total classes including background)
     criterion = SetCriterion(
-        num_classes=config.num_classes,  # +1,
+        num_classes=364,  # Set to output_classes - 1 (365-1)
         matcher=matcher,
         weight_dict=weight_dict,
-        eos_coef=eos_coef,
+        eos_coef=eos_coef,  # weight for no-object class
         losses=["labels", "boxes"],
     )
+    
+    
     return criterion, weight_dict
 
 class DetectionModel(pl.LightningModule):
@@ -71,58 +74,61 @@ class DetectionModel(pl.LightningModule):
         if self.config.data.load_images:
             inputs = images.to(self.device)
             raw_logits, raw_pred_boxes = self.forward(inputs)
-            else:
+        else:
             inputs = data['clip_vision'].to(self.device)
             raw_logits, raw_pred_boxes = self.forward(inputs)
-
         labels = data["labels"].to(self.device)
         boxes = data["bbox"].to(self.device)
         widths = data["width"].tolist()
         heights = data["height"].tolist()
 
         # Normalize & convert boxes
-            converted_boxes = [
-                convert_boxes(box, (w, h)) 
-                for box, w, h in zip(boxes.unbind(0), widths, heights)
-            ]
+        converted_boxes = [
+            convert_boxes(box, (w, h)) 
+            for box, w, h in zip(boxes.unbind(0), widths, heights)
+        ]
 
-            processed_labels = []
-            for i, lbl in enumerate(labels.unbind(0)):
-                # If label is scalar (0-dim), convert to 1D tensor
-                if lbl.dim() == 0:
-                    lbl = lbl.unsqueeze(0)
+        processed_labels = []
+        for i, lbl in enumerate(labels.unbind(0)):
+            # If label is scalar (0-dim), convert to 1D tensor
+            if lbl.dim() == 0:
+                lbl = lbl.unsqueeze(0)
             # If label is empty, add no object label
-                if lbl.numel() == 0:
-                    lbl = torch.tensor([365], device=lbl.device)
+            # if lbl.numel() == 0:
+            #     lbl = torch.tensor([365], device=lbl.device)
+            # else:
+            #     # Check for valid labels only if we have labels
+            #     valid_mask = (lbl >= 0) & (lbl < self.config.num_classes)
+            #     if not valid_mask.all():
+            #         print(f"WARNING: Found invalid label(s) in batch {i}: {lbl[~valid_mask].tolist()}")
+            #         # Replace invalid labels with 0 (background)
+            #         lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
+            
+            processed_labels.append(lbl)
 
-            valid_mask = (lbl >= 0) & (lbl < self.config.num_classes)
-                if not valid_mask.all():
-                print(f"WARNING: Found invalid label(s): {lbl[~valid_mask].tolist()}")
-                    lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
-                processed_labels.append(lbl)
-
-            targets = [
+        targets = [
             {"labels": lbl, "boxes": box}
             for lbl, box in zip(processed_labels, converted_boxes)
-            ]
- 
-            outputs = {
-                "pred_logits": raw_logits,
-                "pred_boxes": raw_pred_boxes.sigmoid()
-            }
+        ]
+
+        outputs = {
+            "pred_logits": raw_logits,
+            "pred_boxes": raw_pred_boxes.sigmoid()
+        }
 
         return outputs, targets
 
     def training_step(self, batch, batch_idx):
         outputs, targets = self.process_batch(batch)
+        
         loss_dict = self.criterion(outputs, targets)
         weighted_loss_dict = {
             k: loss_dict[k] * self.weight_dict[k]
             for k in loss_dict.keys()
             if k in self.weight_dict
         }
-            total_loss = sum(weighted_loss_dict.values())
-            
+        total_loss = sum(weighted_loss_dict.values())
+
         # Log losses
         self.log("train/total_loss", total_loss, on_step=True, on_epoch=True)
         for k, v in loss_dict.items():
@@ -140,23 +146,27 @@ class DetectionModel(pl.LightningModule):
         }
         total_loss = sum(weighted_loss_dict.values())
 
-        # Calculate custom CE loss
-        custom_loss = 0.0
+        # Calculate custom CE loss (excluding no-object class)
+        custom_loss = torch.tensor(0.0, device=self.device)
         for i, target in enumerate(targets):
             if target["labels"].numel() > 0:  # Skip empty targets
                 # Get logits without last column (no-object class)
-                logits_no_obj = outputs["pred_logits"][i, :, :-1]  # [num_queries, num_classes-1]
+                logits_no_obj = outputs["pred_logits"][
+                    i, :, :-1
+                ]  # [num_queries, num_classes-1]
 
                 # For each target label, find the most similar query
                 for label in target["labels"]:
                     # Get probability of the correct class for each query
-                    label_probs = F.softmax(logits_no_obj, dim=1)[:, label]  # [num_queries]
+                    label_probs = F.softmax(logits_no_obj, dim=1)[
+                        :, label
+                    ]  # [num_queries]
                     # Add negative log likelihood of the best matching query
                     custom_loss -= torch.log(label_probs.max() + 1e-6)
 
         # Log all losses
         self.log("val/total_loss", total_loss, on_epoch=True)
-        self.log("val/custom_ce_loss", custom_loss, on_epoch=True)
+        self.log("val/custom_loss", custom_loss, on_epoch=True)
         for k, v in loss_dict.items():
             self.log(f"val/{k}", v, on_epoch=True)
 
@@ -169,8 +179,7 @@ class DetectionModel(pl.LightningModule):
             weight_decay=self.config.train.weight_decay
         )
 
-        # Setup scheduler with warmup
-        num_training_steps = self.trainer.max_epochs * len(self.trainer.train_dataloader)
+        num_training_steps = self.config.train.max_train_steps
         num_warmup_steps = self.config.train.warmup_steps
 
         scheduler = get_linear_schedule_with_warmup(
@@ -187,6 +196,37 @@ class DetectionModel(pl.LightningModule):
             }
         }
 
+def custom_collate_fn(batch):
+    """Custom collate function to handle variable sized data"""
+    images = []
+    data = {
+        'labels': [],
+        'bbox': [],
+        'width': [],
+        'height': [],
+        'clip_vision': []
+    }
+    
+    for img, d in batch:
+        if img is not None:
+            images.append(img)
+        for key in data:
+            if key in d:
+                data[key].append(d[key])
+    
+    # Stack images if they exist
+    if images:
+        images = torch.stack(images)
+    
+    # Process each field
+    if data['clip_vision']:
+        data['clip_vision'] = torch.stack(data['clip_vision'])
+    data['width'] = data['width']  # Keep as list
+    data['height'] = data['height']  # Keep as list
+    # Don't stack labels and bbox as they might have different sizes
+    
+    return images, data
+
 @hydra.main(version_base=None, config_path='',
             config_name='config')
 def main(config):
@@ -201,7 +241,7 @@ def main(config):
     # Initialize model
     if config.model == 'orgDETR':
         model = instantiate(config.org_detr)
-        checkpoint_dir = config.train.org_checkpoint_dir
+        checkpoint_dir = config.train.checkpoint_dir
     elif config.model == 'adapterDETR':
         model = instantiate(config.adapter_detr)
         checkpoint_dir = config.train.checkpoint_dir
@@ -212,7 +252,9 @@ def main(config):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Prepare data and components
-    train_loader, val_loader = get_dataloader(config)
+    _, train_loader = get_dataloader(config, split="train" )
+    _, val_loader = get_dataloader(config, split="val")
+    
     criterion, weight_dict = get_loss_fn(config)
     pl_model = DetectionModel(model, criterion, weight_dict, config)
 

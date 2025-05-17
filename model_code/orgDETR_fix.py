@@ -2,12 +2,14 @@ import torch
 import torch.nn as nn
 from transformers import DetrForObjectDetection, DetrImageProcessor
 import types
+from typing import Tuple
 
 class Detr(nn.Module):
     def __init__(
         self,
         model_checkpoint: str = "facebook/detr-resnet-50",
         freeze_backbone: bool = True,
+        freeze_all: bool = False,
         num_classes: int = 365 + 1  # 365 objects + 1 background
     ):
         super().__init__()
@@ -23,6 +25,9 @@ class Detr(nn.Module):
         # Freeze backbone if specified
         if freeze_backbone:
             for param in self.detr.model.backbone.parameters():
+                param.requires_grad = False
+        if freeze_all:
+            for param in self.detr.parameters():
                 param.requires_grad = False
 
     def forward(self, pixel_values: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -32,9 +32,10 @@ class RefL4Dataset(Dataset):
         dataset_path,
         split,
         transforms=None,
-        load_images=False,
-        load_features=True,
+        load_images=True,
+        load_features=False,
         feature_dir=None,
+        cache_dir=None,
     ):
         super(RefL4Dataset, self).__init__()
         assert split in ["val", "test", "train"], "split should be val or test, train"
@@ -44,7 +45,10 @@ class RefL4Dataset(Dataset):
         self.feature_dir = Path(feature_dir) if feature_dir else None
         self.load_images = load_images
         self.load_features = load_features
-        self.cache_dir = Path(cache_dir)
+        try:
+            self.cache_dir = Path(cache_dir)
+        except:
+            print(f"Cache directory not found: {cache_dir}")
         self.vision_features = None
         self.text_features = None
         self._load_dataset()
@@ -108,6 +112,7 @@ class RefL4Dataset(Dataset):
             image = Image.open(image_path).convert("RGB")
             if self.transforms:
                 image = self.transforms(image)
+               
             else:
                 image = ToTensor()(image)
             # output["image"] = image
@@ -123,11 +128,11 @@ class RefL4Dataset(Dataset):
         return image, output
 
 
-def get_dataloader(config, split):
+def get_dataloader(config, split, *args, **kwargs):
     if config.data.load_images:
         normalize = T.Compose(
             [
-                T.Resize(800),
+                T.Resize((224, 224)),
                 T.ToTensor(),
                 T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
             ]
@@ -142,6 +147,7 @@ def get_dataloader(config, split):
         load_images=config.data.load_images,
         load_features=config.data.load_features,
         feature_dir=config.data.feature_path,
+        cache_dir=config.data.cache_dir
     )
 
     dataloader = DataLoader(
@@ -150,6 +156,8 @@ def get_dataloader(config, split):
         shuffle=config.data.shuffle,
         num_workers=config.data.num_workers,
         pin_memory=True,
+        *args,
+        **kwargs
     )
 
     return dataset, dataloader
