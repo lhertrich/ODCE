@@ -7,23 +7,10 @@ from PIL import Image
 import torch
 from torchvision.transforms import ToTensor
 from torchvision import transforms as T
-import torch
-from torch.utils.data import Dataset
-from pathlib import Path
-import torch
-from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor
-from pathlib import Path
-import tarfile
-from PIL import Image
-import io
-from tqdm import tqdm
-import datasets
-import logging
-from huggingface_hub import hf_hub_download
-from torch.utils.data import DataLoader, random_split
 
-logging.basicConfig(level=logging.INFO)
+"""
+Note: Bbox format is xywh.
+"""
 
 from torch.utils.data import Dataset
 from PIL import Image
@@ -48,10 +35,9 @@ class RefL4Dataset(Dataset):
         load_images=False,
         load_features=True,
         feature_dir=None,
-        cache_dir="./data/cache",
     ):
         super(RefL4Dataset, self).__init__()
-        assert split in ["val", "test", "all"], "split should be val, test, or all"
+        assert split in ["val", "test", "train"], "split should be val or test, train"
         self.dataset_path = dataset_path
         self.split = split
         self.transforms = transforms
@@ -61,109 +47,83 @@ class RefL4Dataset(Dataset):
         self.cache_dir = Path(cache_dir)
         self.vision_features = None
         self.text_features = None
-        
         self._load_dataset()
-        
-        if load_features and self.feature_dir:
-            self._load_clip_features()
+
+        project_root = Path(__file__).parent.absolute()
+
+        with open(os.path.join(project_root, "id2label.json"), "r") as f:
+            self.id2label = json.load(f)
+
+        with open(os.path.join(project_root, "label2id.json"), "r") as f:
+            self.label2id = json.load(f)
+
+        with open(os.path.join(project_root, "ref2o365.json"), "r") as f:
+            self.ref2o365 = json.load(f)
+
+        if load_features:
+            if self.feature_dir:
+                self._load_clip_features()
+            else:
+                pass
+                # TODO: obtain the features directly from CLIP
             assert (
                 self.vision_features is not None and self.text_features is not None
             ), "CLIP features not found in specified directory"
 
     def _load_dataset(self):
-        self.dataset = datasets.load_dataset(self.dataset_path)
-        if self.load_images:
-            self.images_dir = self.cache_dir / "images"
-            if not self.images_dir.exists():
-                self.images_dir.mkdir(parents=True, exist_ok=True)
-                image_tar_path = None
-                if self.dataset_path == "JierunChen/Ref-L4":
-                    image_tar_path = hf_hub_download(
-                        repo_id="JierunChen/Ref-L4",
-                        filename="images.tar.gz",
-                        repo_type="dataset",
-                    )
-                    logging.info(f"Downloaded images.tar.gz to {image_tar_path}")
-                else:
-                    image_tar_path = Path(self.dataset_path) / self.images_file
-                
-                self._extract_tar(image_tar_path, self.images_dir)
-        
-        all_splits = datasets.concatenate_datasets([self.dataset["val"], self.dataset["test"]])
-        self.dataset["all"] = all_splits
-
-    def _extract_tar(self, tar_path, extract_dir):
-        logging.info(f"Extracting images from {tar_path} to {extract_dir}")
-        try:
-            with tarfile.open(tar_path, "r:gz") as tar:
-                tar.extractall(path=extract_dir)
-        except Exception as e:
-            logging.error(f"Failed to extract tar file: {str(e)}")
-            raise
+        self.dataset_df = pd.read_parquet(f"{self.dataset_path}/{self.split}.parquet")
+        print(f"Loaded {len(self.dataset_df)} samples from {self.split} split")
 
     def _load_clip_features(self):
-        try:
-            vision_path = self.feature_dir / "vision_features.pt"
-            text_path = self.feature_dir / "text_features.pt"
-            self.vision_features = torch.load(vision_path)
-            self.text_features = torch.load(text_path)
+        if self.feature_dir is not None:
+            self.vision_features = torch.load(
+                f"{self.feature_dir}/{self.split}/vision_features.pt"
+            )
+            self.text_features = torch.load(
+                f"{self.feature_dir}/{self.split}/text_features.pt"
+            )
 
-            val_len = len(self.dataset["val"])
-            if self.split == "val":
-                self.vision_features = self.vision_features[:val_len]
-                self.text_features = self.text_features[:val_len]
-            elif self.split == "test":
-                self.vision_features = self.vision_features[val_len:]
-                self.text_features = self.text_features[val_len:]
+        assert len(self.vision_features) == len(
+            self.dataset_df
+        ), "Mismatch in number of vision features and dataset samples"
+        assert len(self.text_features) == len(
+            self.dataset_df
+        ), "Mismatch in number of text features and dataset samples"
 
-            assert len(self.vision_features) == len(
-                self.dataset[self.split]
-            ), "CLIP features length mismatch with dataset"
-        except Exception as e:
-            logging.error(f"Failed to load CLIP features: {str(e)}")
-            raise
+    def __len__(self):
+        return len(self.dataset_df)
 
     def __getitem__(self, idx):
-        data = self.dataset[self.split][idx].copy()
-        image = torch.tensor(0)  # Placeholder
+        sample = self.dataset_df.iloc[idx]
+        image_path = f"{self.dataset_path}/images/{sample['file_name']}"
+
+        output = dict(sample)
+        category_id = self.ref2o365.get(
+            output["ori_category_id"], output["ori_category_id"]
+        )
+        output["labels"] = self.label2id.get(category_id, 0)
+        output["bbox"] = torch.tensor(sample["bbox"], dtype=torch.float32)
 
         if self.load_images:
-            try:
-                image_path = self.images_dir / data["file_name"]
-                image = Image.open(image_path)
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-                if self.transforms:
-                    image = self.transforms(image)
-                else:
-                    image = ToTensor()(image)
-            except Exception as e:
-                logging.error(f"Error loading image {image_path}: {str(e)}")
-                raise
+            image = Image.open(image_path).convert("RGB")
+            if self.transforms:
+                image = self.transforms(image)
+            else:
+                image = ToTensor()(image)
+            # output["image"] = image
+        else:
+            image = torch.tensor(0)  # Placeholder if images are not loaded
 
-        if self.vision_features is not None and self.text_features is not None:
-            data["clip_vision"] = self.vision_features[idx]
-            data["clip_text"] = self.text_features[idx]
+        if self.load_features:
+            vision_feature = self.vision_features[idx]
+            text_feature = self.text_features[idx]
+            output["clip_vision"] = vision_feature
+            output["clip_text"] = text_feature
 
-        data["labels"] = int(data["ori_category_id"].split("_")[1]) - 1
-        data["bbox"] = torch.tensor(data["bbox"], dtype=torch.float32)
+        return image, output
 
-        return image, data
 
-    def change_split(self, split):
-        assert split in ["val", "test"], "Invalid split"
-        self.split = split
-        if self.load_features and self.feature_dir:
-            self._load_clip_features()
-            
-def get_dataloader(config):
-    """
-    Load saved features and create DataLoader.
-    If config.data.split == 'trainval', split the dataset into train and validation sets manually.
-    
-    Returns:
-        tuple: train_loader, val_loader (if split), otherwise just the single dataloader
-    """
+def get_dataloader(config, split):
     if config.data.load_images:
         normalize = T.Compose(
             [
@@ -182,28 +142,18 @@ def get_dataloader(config):
         load_images=config.data.load_images,
         load_features=config.data.load_features,
         feature_dir=config.data.feature_path,
-        custom_transforms=normalize,
     )
 
-    n_total = len(dataset)
-    n_train = int(n_total * 0.8)
-    n_val = n_total - n_train
-    print('Full dataset length:', n_total, 'Train dataset length:', n_train, 'Validation dataset length:', n_val)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=config.data.batch_size,
+        shuffle=config.data.shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+    )
 
-    train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(42))
-    train_loader = DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True, num_workers=config.data.num_workers, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False, num_workers=config.data.num_workers, pin_memory=True)
+    return dataset, dataloader
 
-    return train_loader, val_loader
-    # else:
-    #     dataloader = DataLoader(
-    #         dataset,
-    #         batch_size=config.data.batch_size,
-    #         shuffle=config.data.shuffle,
-    #         num_workers=config.data.num_workers,
-    #         pin_memory=True,
-    #     )
-    #     return dataloader
 
 if __name__ == "__main__":
     normalize = T.Compose(
