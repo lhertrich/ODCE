@@ -156,24 +156,13 @@ def main(config):
                 # If label is scalar (0-dim), convert to 1D tensor
                 if lbl.dim() == 0:
                     lbl = lbl.unsqueeze(0)
-                # If label is empty, add no object label (class labels from 0-364)
-                # if lbl.numel() == 0:
-                #     lbl = torch.tensor([365], device=lbl.device)
-
-                # valid_mask = (lbl >= 0) & (lbl < config.num_classes)
-                # if not valid_mask.all():
-                #     print(
-                #         f"WARNING: Found invalid label(s): {lbl[~valid_mask].tolist()}"
-                #     )
-                #     # Replace invalid labels with 0 (background)
-                #     lbl = torch.where(valid_mask, lbl, torch.zeros_like(lbl))
                 processed_labels.append(lbl)
 
             targets = [
                 {
-                    "labels": lbl,  # (n_obj,)
+                    "labels": lbl,
                     "boxes": box,
-                }  # (n_obj,4), now in cxcywh normalized coords
+                } 
                 for lbl, box in zip(processed_labels, converted_boxes)
             ]
 
@@ -235,7 +224,6 @@ def main(config):
 
         model.eval()
         val_loss = 0.0
-        custom_ce_loss = 0.0
         count = 0
         with torch.no_grad():
             for images, data in val_loader:
@@ -248,11 +236,10 @@ def main(config):
 
                 pred_boxes = raw_pred_boxes.sigmoid()
                 labels = data["labels"].to(device)
-                boxes = data["bbox"].to(device)  # shape (B,4)
-                widths = data["width"].tolist()  # [w1, w2, …]
-                heights = data["height"].tolist()  # [h1, h2, …]
+                boxes = data["bbox"].to(device)
+                widths = data["width"].tolist()
+                heights = data["height"].tolist()
 
-                # 2) normalize & convert each sample’s box to (cx,cy,w,h) in [0,1]
                 converted_boxes = [
                     convert_boxes(box, (w, h))
                     for box, w, h in zip(boxes.unbind(0), widths, heights)
@@ -263,16 +250,13 @@ def main(config):
                     # If label is scalar (0-dim), convert to 1D tensor
                     if lbl.dim() == 0:
                         lbl = lbl.unsqueeze(0)
-                    # # If label is empty, add no object label (class labels from 0-364)
-                    # if lbl.numel() == 0:
-                    #     lbl = torch.tensor([365], device=lbl.device)
                     processed_labels.append(lbl)
 
                 targets = [
                     {
-                        "labels": lbl,  # (n_obj,)
+                        "labels": lbl,
                         "boxes": box,
-                    }  # (n_obj,4), now in cxcywh normalized coords
+                    }  
                     for lbl, box in zip(processed_labels, converted_boxes)
                 ]
 
@@ -287,31 +271,12 @@ def main(config):
                 val_loss += total_loss.item()
                 count += 1
 
-                custom_loss = 0.0
-                for i, target in enumerate(targets):
-                    if target["labels"].numel() > 0:  # Skip empty targets
-                        # Get logits without last column (no-object class)
-                        logits_no_obj = outputs["pred_logits"][
-                            i, :, :-1
-                        ]  # [num_queries, num_classes-1]
-
-                        # For each target label, find the most similar query
-                        for label in target["labels"]:
-                            # Get probability of the correct class for each query
-                            label_probs = F.softmax(logits_no_obj, dim=1)[
-                                :, label
-                            ]  # [num_queries]
-                            # Add negative log likelihood of the best matching query
-                            custom_loss -= torch.log(label_probs.max() + 1e-6)
-
         avg_val_loss = val_loss / count
-        avg_custom_ce_loss = custom_ce_loss / count
         # log to wandb
         wandb.log(
             {
                 "epoch": epoch,
-                "val/loss": avg_val_loss,
-                "val/custom_ce_loss": avg_custom_ce_loss,
+                "val/loss": avg_val_loss
             }
         )
 
