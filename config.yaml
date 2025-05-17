@@ -31,7 +31,6 @@ adapter_detr:
     output_dim: 256
     seq_len: 197
 
-
 optimizer:
   _target_: torch.optim.AdamW
 
@@ -40,9 +39,8 @@ train:
   epochs: 100
   max_train_steps: 100000
   batch_size: 1
-  checkpoint_dir: "outputs"
-  #final_checkpoint_name: "train-all-execpt-classifier.pth"
-  resume_checkpoint_dir: "./outputs/epoch=8-step=10000-val/total_loss=1.53.ckpt"
+  checkpoint_dir: "./outputs/train-freeze-backbone"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/epoch=79-step=90000-val/total_loss=1.47.ckpt"
   save_interval: 10000
   from_scratch: true
   lr: 1e-4
@@ -51,7 +49,8 @@ train:
 wandb:
   project: "test-orgdetr"
   entity: "visiblyintelligent"
-  name: "freeze-all-execpt-classifier"
+  name: "freeze-backbone"
+  
 
 data:
   # dataset_name: "JierunChen/Ref-L4"

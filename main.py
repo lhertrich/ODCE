@@ -46,7 +46,7 @@ def get_loss_fn(config):
     }
     eos_coef = 0.01  # weight for no-object class
     criterion = SetCriterion(
-        num_classes=364,  # Set to output_classes - 1 (365-1)
+        num_classes=config.num_classes,  
         matcher=matcher,
         weight_dict=weight_dict,
         eos_coef=eos_coef,

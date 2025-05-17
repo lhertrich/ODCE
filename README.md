@@ -12,7 +12,7 @@ Start an interactive session on a compute node (eg, 2 GPUs case):
 bbox: Bounding box coordinates [x, y, w, h] of the annotated object.
 
 ```bash
-srun -t 120 -A cs-503 --qos=cs-503 --gres=gpu:1 --mem=16G --pty bash
+srun -t 240 -A cs-503 --qos=cs-503 --gres=gpu:1 --mem=16G --pty bash
 ```
 Then, on the compute node:
 
