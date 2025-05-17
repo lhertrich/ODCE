@@ -22,8 +22,23 @@ from tqdm import tqdm
 import datasets
 import logging
 from huggingface_hub import hf_hub_download
+from torch.utils.data import DataLoader, random_split
+
 logging.basicConfig(level=logging.INFO)
 
+from torch.utils.data import Dataset
+from PIL import Image
+import tarfile
+import io
+from tqdm import tqdm
+import torch
+import datasets
+from torchvision.transforms import ToTensor
+from pathlib import Path
+import logging
+from huggingface_hub import hf_hub_download
+
+logging.basicConfig(level=logging.INFO)
 
 class RefL4Dataset(Dataset):
     def __init__(
@@ -35,10 +50,10 @@ class RefL4Dataset(Dataset):
         load_images=False,
         load_features=True,
         feature_dir=None,
-        custome_transforms=None,
+        cache_dir="./data/cache",
     ):
         super(RefL4Dataset, self).__init__()
-        assert split in ["val", "test", "all"], "split should be val or test"
+        assert split in ["val", "test", "all"], "split should be val, test, or all"
         self.dataset_path = dataset_path
         self.split = split
         self.images_file = images_file
@@ -46,11 +61,12 @@ class RefL4Dataset(Dataset):
         self.feature_dir = Path(feature_dir) if feature_dir else None
         self.load_images = load_images
         self.load_features = load_features
+        self.cache_dir = Path(cache_dir)
         self.vision_features = None
         self.text_features = None
-        self.transforms = custom_transforms
+        
         self._load_dataset()
-
+        
         if load_features and self.feature_dir:
             self._load_clip_features()
             assert (
@@ -63,44 +79,33 @@ class RefL4Dataset(Dataset):
     def _load_dataset(self):
         self.dataset = datasets.load_dataset(self.dataset_path)
         if self.load_images:
-            image_tar_path = f"{self.dataset_path}/{self.images_file}"
-            
-            if self.dataset_path == "JierunChen/Ref-L4":
-                image_tar_path = hf_hub_download(
-                    repo_id="JierunChen/Ref-L4",
-                    filename="images.tar.gz",
-                    repo_type="dataset",
-                )
-                print(f"Downloaded images.tar.gz to {image_tar_path}")
-
-            self.images = self._load_images_from_tar(image_tar_path)
+            self.images_dir = self.cache_dir / "images"
+            if not self.images_dir.exists():
+                self.images_dir.mkdir(parents=True, exist_ok=True)
+                image_tar_path = None
+                if self.dataset_path == "JierunChen/Ref-L4":
+                    image_tar_path = hf_hub_download(
+                        repo_id="JierunChen/Ref-L4",
+                        filename="images.tar.gz",
+                        repo_type="dataset",
+                    )
+                    logging.info(f"Downloaded images.tar.gz to {image_tar_path}")
+                else:
+                    image_tar_path = Path(self.dataset_path) / self.images_file
+                
+                self._extract_tar(image_tar_path, self.images_dir)
+        
         all_splits = datasets.concatenate_datasets([self.dataset["val"], self.dataset["test"]])
         self.dataset["all"] = all_splits
 
-    def _load_images_from_tar(self, image_tar_path):
-        images = {}
-        logging.info(f"Loading images from {image_tar_path}")
+    def _extract_tar(self, tar_path, extract_dir):
+        logging.info(f"Extracting images from {tar_path} to {extract_dir}")
         try:
-            with tarfile.open(image_tar_path, "r:gz") as tar:
-                for member in tqdm(tar.getmembers()):
-                    if member.isfile() and member.name.lower().endswith(
-                        ("jpg", "jpeg", "png", "webp")
-                    ):
-                        f = tar.extractfile(member)
-                        if f:
-                            try:
-                                image = Image.open(io.BytesIO(f.read()))
-                                if image.mode != "RGB":
-                                    image = image.convert("RGB")
-                                images[member.name] = image
-                            except Exception as e:
-                                logging.warning(
-                                    f"Failed to load {member.name}: {str(e)}"
-                                )
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(path=extract_dir)
         except Exception as e:
-            logging.error(f"Failed to open tar file: {str(e)}")
+            logging.error(f"Failed to extract tar file: {str(e)}")
             raise
-        return images
 
     def _load_clip_features(self):
         try:
@@ -109,7 +114,6 @@ class RefL4Dataset(Dataset):
             self.vision_features = torch.load(vision_path)
             self.text_features = torch.load(text_path)
 
-            # Split features based on dataset split
             val_len = len(self.dataset["val"])
             if self.split == "val":
                 self.vision_features = self.vision_features[:val_len]
@@ -121,35 +125,33 @@ class RefL4Dataset(Dataset):
             assert len(self.vision_features) == len(
                 self.dataset[self.split]
             ), "CLIP features length mismatch with dataset"
-
         except Exception as e:
             logging.error(f"Failed to load CLIP features: {str(e)}")
             raise
 
     def __getitem__(self, idx):
         data = self.dataset[self.split][idx].copy()
-        image = torch.tensor(0)  # Default placeholder
+        image = torch.tensor(0)  # Placeholder
 
         if self.load_images:
             try:
-                image = self.images[data["file_name"]]
+                image_path = self.images_dir / data["file_name"]
+                image = Image.open(image_path)
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
                 if self.transforms:
                     image = self.transforms(image)
                 else:
                     image = ToTensor()(image)
-            except KeyError:
-                logging.warning(f"Image {data['file_name']} not found in tar")
             except Exception as e:
-                logging.error(f"Error processing image {data['file_name']}: {str(e)}")
+                logging.error(f"Error loading image {image_path}: {str(e)}")
                 raise
 
         if self.vision_features is not None and self.text_features is not None:
             data["clip_vision"] = self.vision_features[idx]
             data["clip_text"] = self.text_features[idx]
 
-        data["labels"] = (
-            int(data["ori_category_id"].split("_")[1]) - 1
-        )  # -1 to start from 0
+        data["labels"] = int(data["ori_category_id"].split("_")[1]) - 1
         data["bbox"] = torch.tensor(data["bbox"], dtype=torch.float32)
 
         return image, data
@@ -159,48 +161,14 @@ class RefL4Dataset(Dataset):
         self.split = split
         if self.load_features and self.feature_dir:
             self._load_clip_features()
-
-
-# class CLIPFeatureDataset(Dataset):
-#     def __init__(self, feature_dir):
-#         """
-#         Load precomputed CLIP features from directory
-#         Args:
-#             feature_dir: Path containing vision_features.pt and text_features.pt
-#         """
-#         self.feature_dir = Path(feature_dir)
-#         self.vision_features = torch.load(self.feature_dir / "vision_features.pt")
-#         self.text_features = torch.load(self.feature_dir / "text_features.pt")
-
-#         # Verify feature alignment
-#         assert len(self.vision_features) == len(self.text_features), \
-#             "Mismatch between number of vision and text features"
-
-#     def __len__(self):
-#         return len(self.vision_features)
-
-#     def __getitem__(self, idx):
-#         return {
-#             "vision": self.vision_features[idx],
-#             "text": self.text_features[idx]
-#         }
-
-#     @property
-#     def vision_dim(self):
-#         return self.vision_features.shape[1]
-
-#     @property
-#     def text_dim(self):
-#         return self.text_features.shape[1]
-
-
-# Usage example
+            
 def get_dataloader(config):
     """
-    Load saved features and create DataLoader
+    Load saved features and create DataLoader.
+    If config.data.split == 'trainval', split the dataset into train and validation sets manually.
+    
     Returns:
-        dataset: CLIPFeatureDataset instance
-        dataloader: DataLoader for the dataset
+        tuple: train_loader, val_loader (if split), otherwise just the single dataloader
     """
     if config.data.load_images:
         normalize = T.Compose([
@@ -210,7 +178,6 @@ def get_dataloader(config):
         ])
     else:
         normalize = None
-    
 
     dataset = RefL4Dataset(
         dataset_path=config.data.dataset_name,
@@ -221,24 +188,25 @@ def get_dataloader(config):
         custom_transforms=normalize,
     )
 
-    # Convert string labels to integers in one step
+    n_total = len(dataset)
+    n_train = int(n_total * 0.8)
+    n_val = n_total - n_train
+    print('Full dataset length:', n_total, 'Train dataset length:', n_train, 'Validation dataset length:', n_val)
 
-    # def collate_to_device(batch):
-    #     return {
-    #         key: torch.stack([item[key] for item in batch]).to(device)
-    #         for key in batch[0].keys()
-    #     }
+    train_ds, val_ds = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(42))
+    train_loader = DataLoader(train_ds, batch_size=config.data.batch_size, shuffle=True, num_workers=config.data.num_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=config.data.batch_size, shuffle=False, num_workers=config.data.num_workers, pin_memory=True)
 
-    dataloader = DataLoader(
-        dataset,
-        batch_size=config.data.batch_size,
-        shuffle=config.data.shuffle,
-        num_workers=config.data.num_workers,
-        # collate_fn=collate_to_device,
-        pin_memory=True,
-    )
-    return dataset, dataloader
-
+    return train_loader, val_loader
+    # else:
+    #     dataloader = DataLoader(
+    #         dataset,
+    #         batch_size=config.data.batch_size,
+    #         shuffle=config.data.shuffle,
+    #         num_workers=config.data.num_workers,
+    #         pin_memory=True,
+    #     )
+    #     return dataloader
 
 if __name__ == "__main__":
     # How to use
