@@ -42,11 +42,12 @@ wandb:
   name: "back-bone-freeze"
 
 data:
-  dataset_name: "JierunChen/Ref-L4"
-  feature_path: "../data/full-longclip-emb"
+  dataset_path: "../dataset/refl4"
+  feature_path: "/scratch/izar/veski/longclip-new"
   batch_size: 1
   shuffle: false
-  split: "val"
+  split: "test"
   load_images: true
   load_features: true
   num_workers: 1
+  cache_dir: "../data/cache/images"
