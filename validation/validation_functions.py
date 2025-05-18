@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.patches as patches
 from collections import Counter
+from tqdm import tqdm
 
 
 def get_loss_fn(config):
@@ -99,7 +100,7 @@ def eval_model(
     val_loss = 0.0
     count = 0
     with torch.no_grad():
-        for images, data in dataloader:
+        for images, data in tqdm(dataloader):
 
             if with_images:
                 inputs = images.to(device)
@@ -317,114 +318,112 @@ def show_image_prediction(
     with_images = False, #Whether the input to the model is supposed to be images
     all_boxes = True #Whether to output all bounding boxes or only correctly predicted classes and overlapping ones
 ):
-           
-    # Open archive
-    with tarfile.open(images_path, "r:gz") as tar:
-        print(f"Successfully opened {images_path}")
-    
-        # Get image files in archive
-        image_file = tar.extractfile(file_name)
-        image = Image.open(image_file).convert("RGB")
-        width, height = image.size
 
-        print("Passing chosen datapoint through model")
-        print("######################################")
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-        device = torch.device(config.device)
+    # Get image files in archive
+    image = Image.open(os.path.join(images_path, file_name)).convert("RGB")
+    width, height = image.size
 
-        model.eval()
-        model.to(device)
+    print("Passing chosen datapoint through model")
+    print("######################################")
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+    device = torch.device(config.device)
 
-        with torch.no_grad():
-            for images, data in dataloader:
-    
-                #Only pass given file
-                if data['file_name'][0] != file_name:
-                    continue
+    model.eval()
+    model.to(device)
 
-                if with_images:
-                    inputs = images.to(device)
+    with torch.no_grad():
+        for images, data in dataloader:
+
+
+            #Only pass given file
+            if data['file_name'][0] != file_name:
+                continue
+
+            if with_images:
+                inputs = images.to(device)
+            else:
+                inputs = data['clip_vision'].to(device)
+            raw_logits, raw_pred_boxes = model(inputs)
+                
+            pred_scores = raw_logits.softmax(-1)[0]  # [num_queries, num_classes] works only for batch_size 1
+            pred_labels = pred_scores.argmax(-1)     # [num_queries]
+            pred_confs = pred_scores.max(-1).values  # [num_queries]
+            pred_boxes = raw_pred_boxes[0]  # [num_queries, 4] in cxcywh              
+            pred_boxes_xyxy = cxcywh_to_xyxy(pred_boxes) * torch.tensor([width, height, width, height], device=device)
+
+
+            # Count most common label predicted and its mean confidence
+            label_counter = Counter(pred_labels.tolist())
+            most_common_label, count = label_counter.most_common(1)[0]
+            confidences_of_label = pred_confs[pred_labels == most_common_label]
+            avg_conf = confidences_of_label.mean().item()
+            print(f"Most predicted label: {most_common_label} — {count} times, avg confidence: {avg_conf:.2f}")
+
+            true_boxes = convert_boxes(data["bbox"][0].to(device), (width, height))  # [N, 4] cxcywh
+            true_boxes_xyxy = cxcywh_to_xyxy(true_boxes) * torch.tensor([width, height, width, height], device=device)
+            true_labels = data["labels"][0].to(device)
+            if true_labels.dim() == 0:
+                true_labels = true_labels.unsqueeze(0)
+                
+            # Filter predictions based on IoU or correct class
+            selected_indices = []
+            if all_boxes:
+                print("Showing all bounding boxes")
+                selected_indices = list(range(len(pred_boxes)))
+            else:
+                if true_boxes_xyxy.shape[0] > 0:
+                    ious = compute_iou(pred_boxes_xyxy, true_boxes_xyxy)  # [num_preds, num_gt]
+                    max_ious, _ = ious.max(dim=1)
                 else:
-                    inputs = data['clip_vision'].to(device)
-                raw_logits, raw_pred_boxes = model(inputs)
-                    
-                pred_scores = raw_logits.softmax(-1)[0]  # [num_queries, num_classes]
-                pred_labels = pred_scores.argmax(-1)     # [num_queries]
-                pred_confs = pred_scores.max(-1).values  # [num_queries]
-                pred_boxes = raw_pred_boxes[0]  # [num_queries, 4] in cxcywh              
-                pred_boxes_xyxy = cxcywh_to_xyxy(pred_boxes) * torch.tensor([width, height, width, height], device=device)
+                    max_ious = torch.zeros(len(pred_boxes), device=device)
 
+                for idx, (pred_label, iou_val) in enumerate(zip(pred_labels, max_ious)):
+                    if pred_label in true_labels or iou_val >= iou:
+                        selected_indices.append(idx)
 
-                # Count most common label predicted and its mean confidence
-                label_counter = Counter(pred_labels.tolist())
-                most_common_label, count = label_counter.most_common(1)[0]
-                confidences_of_label = pred_confs[pred_labels == most_common_label]
-                avg_conf = confidences_of_label.mean().item()
-                print(f"Most predicted label: {most_common_label} — {count} times, avg confidence: {avg_conf:.2f}")
-
-                true_boxes = convert_boxes(data["bbox"][0].to(device), (width, height))  # [N, 4] cxcywh
-                true_boxes_xyxy = cxcywh_to_xyxy(true_boxes) * torch.tensor([width, height, width, height], device=device)
-                true_labels = data["labels"][0].to(device)
-                if true_labels.dim() == 0:
-                    true_labels = true_labels.unsqueeze(0)
-                    
-                # Filter predictions based on IoU or correct class
-                selected_indices = []
-                if all_boxes:
-                    print("Showing all bounding boxes")
-                    selected_indices = list(range(len(pred_boxes)))
-                else:
+                if len(selected_indices) == 0:
                     if true_boxes_xyxy.shape[0] > 0:
                         ious = compute_iou(pred_boxes_xyxy, true_boxes_xyxy)  # [num_preds, num_gt]
-                        max_ious, _ = ious.max(dim=1)
-                    else:
-                        max_ious = torch.zeros(len(pred_boxes), device=device)
-    
-                    for idx, (pred_label, iou_val) in enumerate(zip(pred_labels, max_ious)):
-                        if pred_label in true_labels or iou_val >= iou:
-                            selected_indices.append(idx)
-
-                    if len(selected_indices) == 0:
-                        if true_boxes_xyxy.shape[0] > 0:
-                            ious = compute_iou(pred_boxes_xyxy, true_boxes_xyxy)  # [num_preds, num_gt]
-                            max_ious, _ = ious.max(dim=1)  # [num_preds]
-                            if (max_ious > 0).any():
-                                best_idx = max_ious.argmax().item()
-                                print(f"No correct prediction, showing closest box with non-zero IoU = {max_ious[best_idx]:.2f}")
-                            else:
-                                best_idx = pred_confs.argmax().item()
-                                print(f"No overlap with any GT — showing most confident prediction (conf = {pred_confs[best_idx]:.2f})")
+                        max_ious, _ = ious.max(dim=1)  # [num_preds]
+                        if (max_ious > 0).any():
+                            best_idx = max_ious.argmax().item()
+                            print(f"No correct prediction, showing closest box with non-zero IoU = {max_ious[best_idx]:.2f}")
                         else:
                             best_idx = pred_confs.argmax().item()
-                            print(f"No ground-truth boxes — showing most confident prediction (conf = {pred_confs[best_idx]:.2f})")
-                    
-                        selected_indices = [best_idx]
+                            print(f"No overlap with any GT — showing most confident prediction (conf = {pred_confs[best_idx]:.2f})")
+                    else:
+                        best_idx = pred_confs.argmax().item()
+                        print(f"No ground-truth boxes — showing most confident prediction (conf = {pred_confs[best_idx]:.2f})")
+                
+                    selected_indices = [best_idx]
 
-        # Visualize
-        fig, ax = plt.subplots(1, figsize=(12, 8))
-        ax.imshow(image)
-    
-        # Draw predicted boxes
-        for idx in selected_indices:
-            x1, y1, x2, y2 = pred_boxes_xyxy[idx].cpu()
-            label = pred_labels[idx].item()
-            conf = pred_confs[idx].item()
-            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1,
-                                     linewidth=2, edgecolor='red', facecolor='none')
-            ax.add_patch(rect)
-            ax.text(x1, y1 - 5, f"Pred: {label} ({conf:.2f})", color='red',
-                    fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
-    
-        # Draw ground-truth boxes
-        for idx in range(len(true_boxes_xyxy)):
-            x1, y1, x2, y2 = true_boxes_xyxy[idx].cpu()
-            label = true_labels[idx].item()
-            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1,
-                                     linewidth=2, edgecolor='green', facecolor='none', linestyle='--')
-            ax.add_patch(rect)
-            ax.text(x1, y2 + 5, f"GT: {label}", color='green',
-                    fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
-    
-        plt.axis("off")
-        plt.tight_layout()
-        plt.show()
+    print(selected_indices)
+
+    # Visualize
+    fig, ax = plt.subplots(1, figsize=(12, 8))
+    ax.imshow(image)
+
+    # Draw predicted boxes
+    for idx in selected_indices:
+        x1, y1, x2, y2 = pred_boxes_xyxy[idx].cpu()
+        label = pred_labels[idx].item()
+        conf = pred_confs[idx].item()
+        rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1,
+                                    linewidth=2, edgecolor='red', facecolor='none')
+        ax.add_patch(rect)
+        ax.text(x1, y1 - 5, f"Pred: {label} ({conf:.2f})", color='red',
+                fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
+
+    # Draw ground-truth boxes
+    for idx in range(len(true_boxes_xyxy)):
+        x1, y1, x2, y2 = true_boxes_xyxy[idx].cpu()
+        label = true_labels[idx].item()
+        rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1,
+                                    linewidth=2, edgecolor='green', facecolor='none', linestyle='--')
+        ax.add_patch(rect)
+        ax.text(x1, y2 + 5, f"GT: {label}", color='green',
+                fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
+
+    plt.axis("off")
+    plt.tight_layout()
+    plt.show()
