@@ -424,5 +424,5 @@ def show_image_prediction(
     if not os.path.exists(savedirectory):
         os.makedirs(savedirectory)
 
-    plt.savefig(+ savedirectory + "/" + file_name, bbox_inches="tight", pad_inches=0.1)
+    plt.savefig(savedirectory + "/" + file_name, bbox_inches="tight", pad_inches=0.1)
     plt.show()
