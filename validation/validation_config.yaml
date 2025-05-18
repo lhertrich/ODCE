@@ -23,6 +23,7 @@ adapter_detr:
   train_decoder: true
   train_class_head: true
   train_bbox_head: true
+  num_queries: 1
   adapter:
     _target_: model_code.transformerAdapter.TransformerAdapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
@@ -33,6 +34,7 @@ train:
   batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
   org_checkpoint_dir: "./checkpoints/org_detr"
+  final_checkpoint_name: "1oq-1,5,2,0.1_losses-fullimage.pth"
   resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
 
