@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.patches as patches
 from collections import Counter
+from tqdm import tqdm
 
 
 def get_loss_fn(config):
@@ -99,7 +100,7 @@ def eval_model(
     val_loss = 0.0
     count = 0
     with torch.no_grad():
-        for images, data in dataloader:
+        for images, data in tqdm(dataloader):
 
             if with_images:
                 inputs = images.to(device)
@@ -283,11 +284,6 @@ def eval_model(
         "case4_right_class_no_overlap": case4_counts,
         "total_evaluated_gt_objects": total_gt_objects_in_dataset
     }
-    
-    total_gt_objects_in_dataset = 0
-    for _, data_item in dataloader:
-        for label_tensor in data_item['labels']:
-             total_gt_objects_in_dataset += label_tensor.numel()
 
     return avg_val_loss, custom_evaluation_results
 
@@ -423,4 +419,10 @@ def show_image_prediction(
 
     plt.axis("off")
     plt.tight_layout()
+
+    savedirectory = "box_images/" + config.train.final_checkpoint_name[:-4]
+    if not os.path.exists(savedirectory):
+        os.makedirs(savedirectory)
+
+    plt.savefig(+ savedirectory + "/" + file_name, bbox_inches="tight", pad_inches=0.1)
     plt.show()

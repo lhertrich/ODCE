@@ -35,11 +35,11 @@ train:
   checkpoint_dir: "./checkpoints/rq1-image-only"
   org_checkpoint_dir: "./checkpoints/org_detr"
   final_checkpoint_name: "1oq-1,5,2,0.1_losses-fullimage.pth"
-  resume_checkpoint_dir: "${train.checkpoint_dir}/checkpoint_last.pth"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}"
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
 
 wandb:
-  project: "full-image"
+  project: "validation_pipeline"
   entity: "visiblyintelligent"
   name: "back-bone-freeze"
 
