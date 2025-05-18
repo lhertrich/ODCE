@@ -20,7 +20,7 @@ adapter_detr:
   train_decoder: true
   train_class_head: true
   train_bbox_head: true
-  num_queries: 4
+  num_queries: 1
   adapter:
     _target_: model_code.transformerAdapter.TransformerAdapter    # Replace with actual module path
     input_dim: 512   # Reference variables or hardcode values
@@ -37,7 +37,7 @@ train:
   batch_size: 1
   checkpoint_dir: "./checkpoints/rq1-image-only"
   org_checkpoint_dir: "./checkpoints/org_detr"
-  final_checkpoint_name: "4oq-1,5,2,0.1_losses-fullimage.pth"
+  final_checkpoint_name: "1oq-1,5,2,0.1_losses-fullimage.pth"
   resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}"
   org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/${train.final_checkpoint_name}"
   save_interval: 10000
@@ -56,7 +56,7 @@ test:
     train_decoder: true
     train_class_head: true
     train_bbox_head: true
-    num_queries: 4
+    num_queries: 5
     adapter:
       _target_: model_code.transformerAdapter.TransformerAdapter
       input_dim: 512 
@@ -64,11 +64,11 @@ test:
       seq_len: 197
 
   checkpoint_dir: "./checkpoints/rq1-image-only"
-  final_checkpoint_name: "4oq-1,5,2,0.1_losses-fullimage.pth"
+  final_checkpoint_name: "5oq-1,5,2,0.1_losses-fullimage.pth"
 
   data:
     dataset_path: "./dataset/refl4"
-    feature_path: "./data/full-longclip-emb"
+    feature_path: "/scratch/izar/veski/longclip-new"
     batch_size: 32
     shuffle: true
     load_images: false
@@ -81,12 +81,12 @@ test:
     name: "${test.final_checkpoint_name}"
 
 
-data:
+#data:
   # dataset_name: "JierunChen/Ref-L4"
-  dataset_path: "./dataset/refl4"
-  feature_path: "./data/full-longclip-emb"
-  batch_size: 32
-  shuffle: true
-  load_images: false
-  load_features: true
-  num_workers: 4
+  #dataset_path: "./dataset/refl4"
+  #feature_path: "./data/full-longclip-emb"
+  #batch_size: 32
+  #shuffle: true
+  #load_images: false
+  #load_features: true
+  #num_workers: 4

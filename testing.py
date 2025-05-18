@@ -10,6 +10,7 @@ from sklearn.metrics import (
     confusion_matrix
 )
 from data.dataloader import get_dataloader
+from collections import Counter
 
 
 def load_model(model_config, config, device):
@@ -136,11 +137,22 @@ def main(cfg):
     wandb.run.summary["test/mean_IoU"]   = sum(all_ious)/len(all_ious)
     wandb.run.summary["test/recall@0.5"] = sum(i >= 0.5 for i in all_ious)/len(all_ious)
 
-    table = wandb.Table(columns=["class_id","precision","recall","f1_score"])
-    for c in range(cfg.num_classes):
-        table.add_data(c, p[c], r[c], f1[c])
-    wandb.log({"test/per_class_metrics": table})
+    # Count how many times each class appeared and was predicted
+    gt_class_counts = Counter(all_labels)
+    pred_class_counts = Counter(all_preds)
 
+    table_columns = [
+        "class_id", "precision", "recall", "f1_score", 
+        "gt_count", "pred_count"
+    ]
+    table = wandb.Table(columns=table_columns)
+    
+    for c in range(cfg.num_classes):
+        gt_count_for_class_c = gt_class_counts.get(c, 0)
+        pred_count_for_class_c = pred_class_counts.get(c, 0)
+        table.add_data(c, p[c], r[c], f1[c], gt_count_for_class_c, pred_count_for_class_c)
+    
+    wandb.log({"test/per_class_metrics": table})
 
 if __name__ == "__main__":
     main()
