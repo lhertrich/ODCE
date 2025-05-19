@@ -24,7 +24,7 @@ adapter_detr:
   train_decoder: true
   train_class_head: true
   train_bbox_head: true
-  num_queries: 5
+  num_queries: 1
   adapter:
     _target_: model_code.transformerAdapter.TransformerAdapter
     input_dim: 512
@@ -39,8 +39,11 @@ train:
   epochs: 100
   max_train_steps: 100000
   batch_size: 1
-  checkpoint_dir: "./outputs/train-freeze-backbone"
-  resume_checkpoint_dir: "${train.checkpoint_dir}/epoch=79-step=90000-val/total_loss=1.47.ckpt"
+  checkpoint_dir: "./checkpoints/rq1-image-text/${train.text_batch_percentage}"
+  org_checkpoint_dir: "./checkpoints/org_detr"
+  final_checkpoint_name: "1oq-1,5,2,0.1_losses-fullimage.pth"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}"
+  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/${train.final_checkpoint_name}"
   save_interval: 10000
   from_scratch: true
   lr: 1e-4
@@ -62,3 +65,35 @@ data:
   load_features: false
   num_workers: 4
   cache_dir: "./data/cache/images"
+
+
+test:
+  model:
+    _target_: model_code.adapterDETR.AdapterDetr
+    train_decoder: true
+    train_class_head: true
+    train_bbox_head: true
+    num_queries: 5
+    adapter:
+      _target_: model_code.transformerAdapter.TransformerAdapter
+      input_dim: 512 
+      output_dim: 256
+      seq_len: 197
+
+  checkpoint_dir: "./checkpoints/rq1-image-only"
+  final_checkpoint_name: "5oq-1,5,2,0.1_losses-fullimage.pth"
+
+  data:
+    dataset_path: "./dataset/refl4"
+    feature_path: "/scratch/izar/veski/longclip-new"
+    batch_size: 32
+    shuffle: true
+    load_images: false
+    load_features: true
+    num_workers: 4
+
+  wandb:
+    project: "Test-RQ1"
+    entity: "visiblyintelligent"
+    name: "${test.final_checkpoint_name}"
+
