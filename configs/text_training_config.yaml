@@ -1,0 +1,63 @@
+num_classes: 365
+device: "cuda"  # or "cpu" depending on your setup
+model: adapter_detr # [org_detr, adapter_detr]
+
+org_detr:
+  _target_: model_code.orgDETR.Detr  # Replace with actual module path
+  # num_queries: 100
+  # hidden_dim: 256
+  # nheads: 8
+  # dim_feedforward: 2048
+  # dropout: 0.1
+  # activation: "relu"
+  # num_encoder_layers: 6
+  # num_decoder_layers: 6
+  # pre_norm: true
+  # return_intermediate_dec: false
+
+adapter_detr:
+  _target_: model_code.adapterDETR.AdapterDetr
+  train_decoder: true
+  train_class_head: true
+  train_bbox_head: true
+  num_queries: 5
+  adapter:
+    _target_: model_code.transformerAdapter.TransformerAdapter    # Replace with actual module path
+    input_dim: 512   # Reference variables or hardcode values
+    output_dim: 256
+    seq_len: 197
+
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.001
+
+train:
+  text_batch_percentage: 0.1
+  epochs: 50
+  batch_size: 256
+  checkpoint_dir: "./checkpoints/rq1-image-text/${train.text_batch_percentage}"
+  org_checkpoint_dir: "./checkpoints/org_detr"
+  final_checkpoint_name: "text_embedding_${train.text_batch_percentage}.pth"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}"
+  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/${train.final_checkpoint_name}"
+  save_interval: 10000
+  from_scratch: true
+  lr: 1e-4
+  weight_decay: 1e-4
+  warmup_steps: 500
+wandb:
+  project: "text-embedding"
+  entity: "visiblyintelligent"
+  name: "${train.final_checkpoint_name}"
+
+data:
+  # dataset_name: "JierunChen/Ref-L4"
+  dataset_path: "./dataset/refl4"
+  feature_path: "./data/full-longclip-emb"
+  batch_size: 32
+  shuffle: true
+  load_images: false
+  load_features: true
+  num_workers: 4
+  cache_dir: "./data/cache/images"
