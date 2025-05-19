@@ -13,3 +13,4 @@ data/full-longclip-emb/
 .ipynb_checkpoints/
 validation/.ipynb_checkpoints
 dataset/refl4/images
+dataset/

@@ -51,6 +51,36 @@ wandb:
   entity: "visiblyintelligent"
   name: "freeze-backbone"
   
+test:
+  model:
+    _target_: model_code.adapterDETR.AdapterDetr
+    train_decoder: true
+    train_class_head: true
+    train_bbox_head: true
+    num_queries: 2
+    adapter:
+      _target_: model_code.transformerAdapter.TransformerAdapter
+      input_dim: 512 
+      output_dim: 256
+      seq_len: 197
+
+  checkpoint_dir: "./checkpoints/new-checkpoints"
+  final_checkpoint_name: "text_embedding_0_n_queries_2.pth"
+
+  data:
+    dataset_path: "./dataset/refl4"
+    feature_path: "./data/full-longclip-emb"
+    batch_size: 32
+    shuffle: true
+    load_images: false
+    load_features: true
+    num_workers: 4
+
+  wandb:
+    project: "Test-RQ1"
+    entity: "visiblyintelligent"
+    name: "${test.final_checkpoint_name}"
+
 
 data:
   # dataset_name: "JierunChen/Ref-L4"
