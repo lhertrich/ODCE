@@ -26,6 +26,7 @@ from huggingface_hub import hf_hub_download
 
 logging.basicConfig(level=logging.INFO)
 
+
 class RefL4Dataset(Dataset):
     def __init__(
         self,
@@ -81,10 +82,10 @@ class RefL4Dataset(Dataset):
     def _load_clip_features(self):
         if self.feature_dir is not None:
             self.vision_features = torch.load(
-                f"{self.feature_dir}/{self.split}/vision_features.pt"
+                f"{self.feature_dir}/{self.split}/vision_features.pt", weights_only=True
             )
             self.text_features = torch.load(
-                f"{self.feature_dir}/{self.split}/text_features.pt"
+                f"{self.feature_dir}/{self.split}/text_features.pt", weights_only=True
             )
 
         assert len(self.vision_features) == len(
@@ -112,7 +113,7 @@ class RefL4Dataset(Dataset):
             image = Image.open(image_path).convert("RGB")
             if self.transforms:
                 image = self.transforms(image)
-               
+
             else:
                 image = ToTensor()(image)
             # output["image"] = image
@@ -147,7 +148,7 @@ def get_dataloader(config, split, *args, **kwargs):
         load_images=config.data.load_images,
         load_features=config.data.load_features,
         feature_dir=config.data.feature_path,
-        cache_dir=config.data.cache_dir
+        cache_dir=config.data.cache_dir,
     )
 
     dataloader = DataLoader(
@@ -157,7 +158,7 @@ def get_dataloader(config, split, *args, **kwargs):
         num_workers=config.data.num_workers,
         pin_memory=True,
         *args,
-        **kwargs
+        **kwargs,
     )
 
     return dataset, dataloader
