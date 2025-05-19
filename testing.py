@@ -77,20 +77,6 @@ def make_wandb_box(box, cls, class_labels):
     }
 
 
-@hydra.main(config_path="./configs", config_name="test_config", version_base=None)
-def main(cfg):
-    wandb.init(
-        **cfg.test.wandb,
-        config=omegaconf.OmegaConf.to_container(cfg.test, resolve=True),
-    )
-      "position": {
-        "minX": cx - 0.5*w, "minY": cy - 0.5*h,
-        "maxX": cx + 0.5*w, "maxY": cy + 0.5*h,
-      },
-      "class_id": int(cls)
-    }
-
-
 @hydra.main(config_path="", config_name="config", version_base=None)
 def main(cfg):
     wandb.init(**cfg.test.wandb,
@@ -159,26 +145,6 @@ def main(cfg):
     wandb.run.summary["test/recall@0.5"] = sum(i >= 0.5 for i in all_ious) / len(
         all_ious
     )
-
-    table = wandb.Table(columns=["class_id", "precision", "recall", "f1_score"])
-    for c in range(cfg.num_classes):
-        table.add_data(c, p[c], r[c], f1[c])
-    wandb.log({"test/per_class_metrics": table})
-
-
-if __name__ == "__main__":
-    main()
-    acc = accuracy_score(all_labels, all_preds)
-    p, r, f1, _ = precision_recall_fscore_support(
-        all_labels, all_preds,
-        average=None,
-        labels=list(range(cfg.num_classes)),
-        zero_division=0
-    )
-
-    wandb.run.summary["test/accuracy"]   = acc
-    wandb.run.summary["test/mean_IoU"]   = sum(all_ious)/len(all_ious)
-    wandb.run.summary["test/recall@0.5"] = sum(i >= 0.5 for i in all_ious)/len(all_ious)
 
     # Count how many times each class appeared and was predicted
     gt_class_counts = Counter(all_labels)
