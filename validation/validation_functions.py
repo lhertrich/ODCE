@@ -391,6 +391,7 @@ def show_image_prediction(
                         print(f"No ground-truth boxes — showing most confident prediction (conf = {pred_confs[best_idx]:.2f})")
                 
                     selected_indices = [best_idx]
+            break
 
     # Visualize
     fig, ax = plt.subplots(1, figsize=(12, 8))
