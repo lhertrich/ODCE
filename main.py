@@ -195,37 +195,6 @@ class DetectionModel(pl.LightningModule):
             }
         }
 
-def custom_collate_fn(batch):
-    """Custom collate function to handle variable sized data"""
-    images = []
-    data = {
-        'labels': [],
-        'bbox': [],
-        'width': [],
-        'height': [],
-        'clip_vision': []
-    }
-    
-    for img, d in batch:
-        if img is not None:
-            images.append(img)
-        for key in data:
-            if key in d:
-                data[key].append(d[key])
-    
-    # Stack images if they exist
-    if images:
-        images = torch.stack(images)
-    
-    # Process each field
-    if data['clip_vision']:
-        data['clip_vision'] = torch.stack(data['clip_vision'])
-    data['width'] = data['width']  # Keep as list
-    data['height'] = data['height']  # Keep as list
-    # Don't stack labels and bbox as they might have different sizes
-    
-    return images, data
-
 @hydra.main(version_base=None, config_path='',
             config_name='config')
 def main(config):
@@ -255,6 +224,8 @@ def main(config):
     _, val_loader = get_dataloader(config, split="val")
     
     criterion, weight_dict = get_loss_fn(config)
+    ## logging num_queries of model to double check
+    wandb_logger.experiment.log({"num_queries": model.detr.config.num_queries})
     pl_model = DetectionModel(model, criterion, weight_dict, config)
 
     # Configure checkpointing

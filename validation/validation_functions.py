@@ -81,7 +81,7 @@ def eval_model(
         model,
         dataset,
         iou_threshold,
-        with_images = False
+        with_images = True
 ):
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.data.batch_size, shuffle=False)
     device = torch.device(config.device)
@@ -310,7 +310,7 @@ def show_image_prediction(
     iou,
     file_name,
     images_path,
-    with_images = False, #Whether the input to the model is supposed to be images
+    with_images = True, #Whether the input to the model is supposed to be images
     all_boxes = True #Whether to output all bounding boxes or only correctly predicted classes and overlapping ones
 ):
            

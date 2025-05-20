@@ -11,17 +11,18 @@ from sklearn.metrics import (
 )
 from data.dataloader import get_dataloader
 from collections import Counter
+from tqdm import tqdm
 
 
 def load_model(model_config, config, device):
     model = instantiate(model_config)
     checkpoint_path = os.path.join(
-        config.checkpoint_dir,
-        config.final_checkpoint_name
+        config.train.checkpoint_dir,
+        config.train.final_checkpoint_name
     )
     if os.path.exists(checkpoint_path):
         print(f"Loading checkpoint from {checkpoint_path}")
-        state = torch.load(checkpoint_path, map_location=device)
+        state = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.load_state_dict(state["model_state_dict"])
     else:
         print("No checkpoint found, using default weights.")
@@ -74,23 +75,29 @@ def make_wandb_box(box, cls, class_labels):
     }
 
 
-@hydra.main(config_path="", config_name="config", version_base=None)
+@hydra.main(config_path="", config_name="config.yaml", version_base=None)
 def main(cfg):
-    wandb.init(**cfg.test.wandb,
-           config=omegaconf.OmegaConf.to_container(cfg.test, resolve=True))
+    wandb.init(**cfg.wandb,
+           config=omegaconf.OmegaConf.to_container(cfg, resolve=True))
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(cfg.test.model, cfg.test, device)
+    if cfg.model == 'orgDETR':
+        model = load_model(cfg.org_detr, cfg, device)
+    elif cfg.model == 'adapterDETR':
+        model = load_model(cfg.adapter_detr, cfg, device)
+    else:
+        raise ValueError(f"Model {cfg.model} not found")
+    
     print("Loaded model")
-    _, test_loader = get_dataloader(cfg.test, split="test")
+    _, test_loader = get_dataloader(cfg, split="test")
     print("Loaded test loader with length", len(test_loader))
     
     all_preds, all_labels, all_ious = [], [], []
 
     print("Starting testing")
     with torch.no_grad():
-        for images, data in test_loader:
-            if cfg.test.data.load_images:
+        for images, data in tqdm(test_loader):
+            if cfg.data.load_images:
                 inputs = images.to(device)
             else:
                 inputs = data["clip_vision"].to(device)

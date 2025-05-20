@@ -1,13 +1,13 @@
 ### HERE PUT THE MODEL AND CHECKPOINT YOU WISH TO EVALUATE ###
-model: adapter_detr # [org_detr, adapter_detr]
-
+model: orgDETR # [org_detr, adapter_detr]
+num_queries: 2
 
 num_classes: 365
 device: "cuda"  # or "cpu" depending on your setup
 
 org_detr:
-  _target_: models.orgDETR.Detr  # Replace with actual module path
-  # num_queries: 100
+  _target_: model_code.orgDETR_fix.Detr  # Replace with actual module path
+  num_queries: ${num_queries}
   # hidden_dim: 256
   # nheads: 8
   # dim_feedforward: 2048
@@ -32,11 +32,11 @@ adapter_detr:
 
 train:
   batch_size: 1
-  checkpoint_dir: "./checkpoints/rq1-image-only"
-  org_checkpoint_dir: "./checkpoints/org_detr"
-  final_checkpoint_name: "1oq-1,5,2,0.1_losses-fullimage.pth"
+  checkpoint_dir: "./outputs/train-freeze-backbone-num-queries-2"
+  # org_checkpoint_dir: "./checkpoints/org_detr"
+  final_checkpoint_name: "epoch=61-step=70000-val-corrupted/total_loss=3.94.ckpt"
   resume_checkpoint_dir: "${train.checkpoint_dir}/${train.final_checkpoint_name}"
-  org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
+  # org_resume_checkpoint_dir: "${train.org_checkpoint_dir}/checkpoint_last.pth"
 
 wandb:
   project: "validation_pipeline"
@@ -45,11 +45,11 @@ wandb:
 
 data:
   dataset_path: "../dataset/refl4"
-  feature_path: "/scratch/izar/veski/longclip-new"
+  feature_path: "/scratch/tranhuon/data/longclip-new"
   batch_size: 1
   shuffle: false
   split: "test"
   load_images: true
-  load_features: true
+  load_features: false
   num_workers: 1
   cache_dir: "../data/cache/images"

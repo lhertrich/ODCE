@@ -5,10 +5,10 @@
 #SBATCH --cpus-per-task 8
 #SBATCH --mem 24G
 #SBATCH --gres=gpu:1
-#SBATCH --time 05:00:00
+#SBATCH --time 08:00:00
 #SBATCH --output=./logs/slurm-%j.out
 #SBATCH --account=cs-503
 #SBATCH --qos=cs-503
 source ~/.bashrc
 conda activate nanofm
-bash train.sh
+bash train-scripts/2-train_2_queries.sh

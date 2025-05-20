@@ -1,6 +1,7 @@
 num_classes: 365
 device: "cuda"  # or "cpu" depending on your setup
 model: orgDETR # [org_detr, adapter_detr]
+num_queries: 2
 
 org_detr:
   _target_: model_code.orgDETR_fix.Detr
@@ -8,7 +9,8 @@ org_detr:
   freeze_backbone: true
   freeze_all: false
   num_classes: ${num_classes}
-  # num_queries: 100
+  num_queries: ${num_queries}
+
   # hidden_dim: 256
   # nheads: 8
   # dim_feedforward: 2048
@@ -39,19 +41,19 @@ train:
   epochs: 100
   max_train_steps: 100000
   batch_size: 1
-  checkpoint_dir: "./outputs/train-freeze-backbone"
-  resume_checkpoint_dir: "${train.checkpoint_dir}/epoch=79-step=90000-val/total_loss=1.47.ckpt"
+  checkpoint_dir: "./outputs/train-freeze-backbone-num-queries-${num_queries}"
+  final_checkpoint_name: "/epoch=8-step=10000-val/total_loss=3.31.ckpt"
+  resume_checkpoint_dir: "${train.checkpoint_dir}/outputs/train-freeze-backbone/epoch=61-step=70000-val/total_loss=2.15.ckpt"
   save_interval: 10000
-  from_scratch: true
   lr: 1e-4
   weight_decay: 1e-4
   warmup_steps: 500
+
 wandb:
   project: "test-orgdetr"
   entity: "visiblyintelligent"
-  name: "freeze-backbone"
+  name: "freeze-backbone-num-queries-${num_queries}"
   
-
 data:
   # dataset_name: "JierunChen/Ref-L4"
   dataset_path: "./dataset/refl4"
