@@ -98,7 +98,6 @@ def eval_model(
     model.eval()
     model.to(device)
     val_loss = 0.0
-    count = 0
     with torch.no_grad():
         for images, data in tqdm(dataloader):
 
@@ -159,8 +158,9 @@ def eval_model(
             total_gt_objects_in_dataset += sum(t['labels'].numel() for t in targets)
             batch_matched_indices = criterion.matcher(outputs, targets) # List of (pred_idx, gt_idx) tuples for each image in batch
             
-            for b in range(raw_logits.shape[0]): # Iterate over each image in the batch
-                out_logits_img = raw_logits[b]      # Shape: (num_queries, num_classes)
+            pred_logits = raw_logits.cpu()
+            B, Q, _ = pred_logits.shape
+            for b in range(B): # Iterate over each image in the batch
                 pred_boxes_img = pred_boxes[b]      # Shape: (num_queries, 4) in cxcywh normalized
                 target_img = targets[b]           # Dict: {'labels': (num_gt,), 'boxes': (num_gt, 4)}
                 
@@ -179,7 +179,9 @@ def eval_model(
                 pred_boxes_img_xyxy = cxcywh_to_xyxy(pred_boxes_img)
                 gt_boxes_img_xyxy = cxcywh_to_xyxy(target_img['boxes'])
                 
-                pred_classes_img = torch.argmax(out_logits_img, dim=-1) # Shape: (num_queries,)
+                scores = torch.softmax(pred_logits[b, :, :-1], dim=-1) # Shape: (num_queries,)
+
+                best_per_query, best_class_per_query = scores.max(dim=-1) #Get the class prediction for each query
 
                 # Case 1: Ground truth class matches with a *matched* predicted class and their bounding boxes overlap
                 for k in range(len(matched_pred_indices_img)):
@@ -194,7 +196,7 @@ def eval_model(
                                                          gt_boxes_img_xyxy[t_idx].unsqueeze(0))
                     iou = iou_matrix[0, 0]
                     
-                    pred_c = pred_classes_img[p_idx]
+                    pred_c = best_class_per_query[p_idx]
                     gt_c = target_img['labels'][t_idx]
 
                     if pred_c == gt_c and iou > iou_threshold:
@@ -222,7 +224,7 @@ def eval_model(
                             continue # This pred was optimally matched to this GT. If not Case 1, not Case 2 with this pred.
 
                         pred_b_xyxy_single = pred_boxes_img_xyxy[p_idx].unsqueeze(0) # Shape [1,4]
-                        pred_c = pred_classes_img[p_idx]
+                        pred_c = best_class_per_query[p_idx]
                         
                         iou_matrix = torchvision.ops.box_iou(pred_b_xyxy_single, gt_b_xyxy_single)
                         iou = iou_matrix[0, 0]
@@ -242,7 +244,7 @@ def eval_model(
 
                     for p_idx in range(num_pred_img):
                         pred_b_xyxy_single = pred_boxes_img_xyxy[p_idx].unsqueeze(0)
-                        pred_c = pred_classes_img[p_idx]
+                        pred_c = best_class_per_query[p_idx]
                         
                         iou_matrix = torchvision.ops.box_iou(pred_b_xyxy_single, gt_b_xyxy_single)
                         iou = iou_matrix[0, 0]
@@ -262,7 +264,7 @@ def eval_model(
 
                     for p_idx in range(num_pred_img):
                         pred_b_xyxy_single = pred_boxes_img_xyxy[p_idx].unsqueeze(0)
-                        pred_c = pred_classes_img[p_idx]
+                        pred_c = best_class_per_query[p_idx]
                         
                         iou_matrix = torchvision.ops.box_iou(pred_b_xyxy_single, gt_b_xyxy_single)
                         iou = iou_matrix[0, 0]
